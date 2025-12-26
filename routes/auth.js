@@ -46,18 +46,19 @@ auth.post("/sign", limiter, async (req, res) => {
       res.cookie("accessToken", accessToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
+        sameSite: "none",
         maxAge: 10 * 60 * 1000,
         path: '/',
       });
       res.cookie("refreshToken", refreshToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
+        sameSite: "none",
         maxAge: age,
         path: '/api/auth/test',
       });
       return res.status(201).json({
+        success:true,
         msg: "Your account has just made successfully",
         accessToken,
         username:userUsername,
@@ -103,14 +104,14 @@ auth.post("/login", limiter, (req, res, next) => {
       res.cookie("accessToken", accessToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
+        sameSite: "none",
         maxAge: 10 * 60 * 1000,
         path: '/',
       });
       res.cookie("refreshToken", refreshToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
+        sameSite: "none",
         maxAge: age,
        path: '/api/auth/test',
       });
