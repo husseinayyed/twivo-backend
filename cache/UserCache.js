@@ -56,7 +56,7 @@ class UserCache extends BaseCache {
     async _getCachedUserTwis(userId) {
         const twisKey = `user:${userId}:twis`;
         try {
-            const cachedTwis = await this.client.smembers(twisKey)
+            const cachedTwis = await this.client.lrange(twisKey, 0, 49);
             
             if (!cachedTwis || cachedTwis.length === 0) {
                 return null;
