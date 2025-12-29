@@ -175,48 +175,96 @@ class TwiCache extends BaseCache {
         return personalizedFeed;
     }
 
-    async _addPersonalization(genericTweets, userId) {
-        if (!genericTweets.length) return [];
-        
-        // Convert userId to string for comparison
-        const userIdStr = userId.toString();
-        
-        const tweetIds = genericTweets.map(t => t._id || t._id);
-        const authorIds = genericTweets.map(t => {
-            // Convert ObjectId to string
-            const authorId = t.author?.userId;
-            return authorId ? authorId.toString() : null;
-        }).filter(Boolean);
-        
-        const uniqueAuthors = [...new Set(authorIds.filter(id => id !== userIdStr))];
-        
-        // Batch ALL operations using cache service
-        const [likeCounts, likedStatuses, followStatuses] = await Promise.all([
-            // Get like counts - USE CACHE SERVICE
-            Promise.all(tweetIds.map(id => this.cache.like.getTwiLikeCount(id))),
-            
-            // Check liked status - USE CACHE SERVICE
-            Promise.all(tweetIds.map(id => this.cache.like.hasLiked(id, userId))),
-            
-            // Get follow status for all unique authors - USE CACHE SERVICE
-            this._batchGetFollowStatus(userIdStr, uniqueAuthors)
+   async _addPersonalization(genericTweets, userId) {
+    const userIdStr = userId.toString();
+    
+    // Get tweet IDs and author IDs
+    const tweetIds = genericTweets.map(t => t._id || t._id);
+    const authorIds = genericTweets.map(t => {
+        const authorId = t.author?.userId;
+        return authorId ? authorId.toString() : null;
+    }).filter(Boolean);
+    
+    // Get unique authors to check follow status
+    const uniqueAuthors = [...new Set(authorIds.filter(id => id !== userIdStr))];
+    
+    try {
+        // PARALLEL batch operations with DB fallback
+        const [likeResults, likedResults, followResults] = await Promise.all([
+            this.cache.like.batchGetLikeCounts(tweetIds),
+            this.cache.like.batchHasLiked(tweetIds, userId),
+            this.cache.follow.batchIsFollowing(userIdStr, uniqueAuthors)
         ]);
+        
+        // Convert follow results to map
+        const followMap = {};
+        followResults.forEach(result => {
+            if (result.success) {
+                followMap[result.targetUserId] = {
+                    isFollowing: result.isFollowing,
+                    followsYou: false // We'd need reverse check for this
+                };
+            }
+        });
         
         // Build personalized tweets
         return genericTweets.map((tweet, index) => {
             const authorId = authorIds[index];
-            const authorFollowStatus = authorId ? followStatuses[authorId] : null;
+            const followStatus = authorId ? followMap[authorId] : null;
             
             return {
                 ...tweet,
-                likes: likeCounts[index],
-                isLiked: likedStatuses[index],
-                isFollowing: authorFollowStatus?.isFollowing || false,
-                followsYou: authorFollowStatus?.followsYou || false,
-                myself: userIdStr === authorId // String comparison
+                likes: likeResults[index]?.count || 0,
+                isLiked: likedResults[index]?.hasLiked || false,
+                isFollowing: followStatus?.isFollowing || false,
+                followsYou: false, // Skip for now to keep it simple
+                myself: userIdStr === authorId
             };
         });
+        
+    } catch (error) {
+        console.error("Error in _addPersonalization:", error);
+        
+        // ULTIMATE FALLBACK: check DB for each tweet individually
+        const personalizedTweets = [];
+        
+        for (let i = 0; i < genericTweets.length; i++) {
+            const tweet = genericTweets[i];
+            const tweetId = tweet._id || tweet._id;
+            const authorId = tweet.author?.userId?.toString();
+            
+            try {
+                // Check like status (individual queries - slow but reliable)
+                const [likeCount, hasLiked, isFollowing] = await Promise.all([
+                    Like.countDocuments({ twiId: tweetId }),
+                    Like.findOne({ twiId: tweetId, likedBy: userId }),
+                    authorId ? Follow.findOne({ follower: userId, following: authorId }) : null
+                ]);
+                
+                personalizedTweets.push({
+                    ...tweet,
+                    likes: likeCount || 0,
+                    isLiked: !!hasLiked,
+                    isFollowing: !!isFollowing,
+                    followsYou: false,
+                    myself: userIdStr === authorId
+                });
+            } catch (innerError) {
+                // If even individual queries fail, return basic data
+                personalizedTweets.push({
+                    ...tweet,
+                    likes: 0,
+                    isLiked: false,
+                    isFollowing: false,
+                    followsYou: false,
+                    myself: userIdStr === authorId
+                });
+            }
+        }
+        
+        return personalizedTweets;
     }
+}
 
     async _batchGetFollowStatus(viewerId, authorIds) {
         if (authorIds.length === 0) return {};

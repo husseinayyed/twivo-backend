@@ -46,14 +46,14 @@ auth.post("/sign", limiter, async (req, res) => {
       res.cookie("accessToken", accessToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "none",
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
         maxAge: 10 * 60 * 1000,
         path: '/',
       });
       res.cookie("refreshToken", refreshToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "none",
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
         maxAge: age,
         path: '/api/auth/test',
       });
@@ -104,14 +104,14 @@ auth.post("/login", limiter, (req, res, next) => {
       res.cookie("accessToken", accessToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "none",
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
         maxAge: 10 * 60 * 1000,
         path: '/',
       });
       res.cookie("refreshToken", refreshToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "none",
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
         maxAge: age,
        path: '/api/auth/test',
       });
@@ -170,7 +170,7 @@ auth.get("/test", authLimiter,async (req, res) => {
     res.cookie("accessToken", accessToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
         maxAge: 10 * 60 * 1000,
         path: '/'
       });
