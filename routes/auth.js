@@ -37,7 +37,6 @@ auth.post("/sign", limiter, async (req, res) => {
       const { accessToken, refreshToken, hashToken, recoveryKeys } =
       await jwtMaker(payload);
       user.refreshToken = hashToken;
-      user.recoveryKeys = recoveryKeys;
       await user.save();
       userUsername = user.username
       let age;
