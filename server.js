@@ -15,7 +15,7 @@ const db = mongoose;
 db.connect(process.env.DB_URL).then(() => {
   console.log("Mongodb atlas database is running");
 });
-app.set('trust proxy', true); 
+app.set('trust proxy', 1); 
 app.use(helmet())
 // ✅ CORRECT ORDER:
 // 1. CORS first (to allow cookie headers)
