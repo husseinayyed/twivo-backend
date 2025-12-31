@@ -10,10 +10,7 @@ class CacheService {
   constructor() {
   
     this.client = process.env.REDIS_ENV === 'PRO' 
-      ? new Redis({
-          host: process.env.REDISHOST,
-          port: process.env.REDISPORT,
-          password: process.env.REDISPASSWORD,
+      ? new Redis(process.env.REDIS_URL,{
           family: 4,
           keepAlive: 10000,
           noDelay: true
