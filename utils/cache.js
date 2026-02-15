@@ -1,9 +1,9 @@
 import Redis from "ioredis";
 import RedisMock from "ioredis-mock";
-import UserCache from "../cache/UserCache.js";
-import TwiCache from "../cache/TwiCache.js";
-import LikeCache from "../cache/LikeCache.js";
-import FollowCache from "../cache/FollowCache.js";
+import UserCache from "../Redis/UserCache.js";
+import TwiCache from "../Redis/TwiCache.js";
+import LikeCache from "../Redis/LikeCache.js";
+import FollowCache from "../Redis/FollowCache.js";
 import dotenv from "dotenv"
 dotenv.config()
 class CacheService {

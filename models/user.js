@@ -2,7 +2,19 @@ import mongoose from "mongoose"
 import bcrypt from "bcrypt"
 const db = mongoose
 const sign = new db.Schema({
+  name: {
+    type: String,
+    required: false,
+    default:"Twivo's user",
+    trim: true,
+  },
   username: {
+    type: String,
+    required: true,
+    trim: true,
+    unique: true,
+  },
+  email: {
     type: String,
     required: true,
     trim: true,
@@ -13,21 +25,9 @@ const sign = new db.Schema({
     required:false,
     default:false
   },
-  password: {
-    type: String,
-    required: true,
-  },
-  recoveryKeys:{
-    type:[String],
-    default: []
-  },
   image:{
     type: String,
     default: null
-  },
-  deleteUrl:{
-    type: String,
-    required: false
   },
   bio:{
     type: String,

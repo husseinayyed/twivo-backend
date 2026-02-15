@@ -1,45 +1,71 @@
-import express from "express";
-import cors from "cors";
+import Fastify from "fastify";
+import cors from "@fastify/cors";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
-import cookieParser from "cookie-parser";
+import cookie from "@fastify/cookie";
+import helmet from "@fastify/helmet";
+import jwt from "@fastify/jwt"
 import auth from "./routes/auth.js";
 import api from "./routes/api.js";
 import feed from "./routes/feed.js";
 import user from "./routes/user.js";
-import helmet from "helmet"
+
 dotenv.config();
-const app = express();
+
+const fastify = Fastify({
+  logger: true,
+  trustProxy: 1
+});
+
 const db = mongoose;
 
+// Connect to MongoDB
 db.connect(process.env.DB_URL).then(() => {
   console.log("Mongodb atlas database is running");
 });
-app.set('trust proxy', 1); 
-app.use(helmet())
-// ✅ CORRECT ORDER:
-// 1. CORS first (to allow cookie headers)
-app.use(
-  cors({
-    origin: process.env.FRONTEND_URL,
-    credentials: true, // This allows cookies to be sent
-  })
-);
 
-// 2. cookieParser second (to parse incoming cookies)
-app.use(cookieParser());
-
-// 3. Body parser third
-app.use(express.json());
-
-
-// Your routes
-app.use("/api", api);
-app.use("/api/auth", auth);
-app.use("/api/feed", feed);
-app.use("/api/user", user);
-
-const PORT = process.env.PORT;
-app.listen(PORT, "0.0.0.0", () => {
-  console.log("Server running on port", PORT);
+// Register plugins
+await fastify.register(helmet, {
+  // Helmet options if needed
 });
+
+await fastify.register(cors, {
+  origin: process.env.FRONTEND_URL,
+  credentials: true,
+});
+
+await fastify.register(cookie, {
+  secret: process.env.COOKIE_SECRET, // Add a secret for cookie signing
+  hook: 'onRequest', // Parse cookies on request
+});
+fastify.register(jwt, {
+  secret: process.env.JWT_SECRET, // Default secret
+  parseOptions: {
+    signed: true // Parse signed cookies
+  }
+})
+
+// Register routes
+fastify.register(api, { prefix: '/api' });
+fastify.register(auth, { prefix: '/api/auth' });
+// fastify.register(feed, { prefix: '/api/feed' });
+// fastify.register(user, { prefix: '/api/user' });
+
+// Health check route
+fastify.get('/health', async (request, reply) => {
+  return { status: 'ok', timestamp: new Date().toISOString() };
+});
+
+const PORT = process.env.PORT || 3000;
+
+const start = async () => {
+  try {
+    await fastify.listen({ port: PORT, host: '0.0.0.0' });
+    console.log("Server running on port", PORT);
+  } catch (err) {
+    fastify.log.error(err);
+    process.exit(1);
+  }
+};
+
+start();

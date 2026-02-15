@@ -237,18 +237,7 @@ class UserCache extends BaseCache {
             const user = await User.findById(token);
             if (!user) return null;
             
-            const userData = {
-                _id: user._id.toString(),
-                username: user.username,
-                password: user.password,
-                remember: user.remember || false,
-                recoveryKeys: user.recoveryKeys || [],
-                role: user.role,
-                image: user.image,
-                bio: user.bio,
-                refreshToken: user.refreshToken || null,
-                createdAt: user.createdAt
-            };
+            const userData = this._formatCachedUser(user)
             
             // Cache asynchronously
             this._cacheUserData(userData).catch(console.error);
@@ -301,16 +290,7 @@ class UserCache extends BaseCache {
             const dbUsers = await User.find({ _id: { $in: userIds } }).lean();
             
             const users = dbUsers.map(user => ({
-                _id: user._id.toString(),
-                username: user.username,
-                password: user.password,
-                remember: user.remember || false,
-                recoveryKeys: user.recoveryKeys || [],
-                role: user.role,
-                image: user.image,
-                bio: user.bio,
-                refreshToken: user.refreshToken || null,
-                createdAt: user.createdAt
+               ...this._formatCachedUser(user)
             }));
             
             // Cache asynchronously
@@ -386,18 +366,7 @@ class UserCache extends BaseCache {
     async _cacheUserData(user) {
         try {
             const userKey = `user:${user._id}`;
-            const userFields = {
-                _id: user._id.toString(),
-                username: user.username,
-                password: user.password,
-                remember: (user.remember || false).toString(),
-                recoveryKeys: JSON.stringify(user.recoveryKeys || []),
-                role: user.role,
-                image: user.image,
-                bio: user.bio,
-                refreshToken: user.refreshToken || "",
-                createdAt: user.createdAt
-            };
+            const userFields = this._formatCachedUser(user)
             
             await this.hset(userKey, 604800, ...Object.entries(userFields).flat());
         } catch (error) {
@@ -405,18 +374,16 @@ class UserCache extends BaseCache {
         }
     }
     
-    _formatCachedUser(cached, token) {
+    _formatCachedUser(cached) {
         return {
-            _id: cached._id || token,
-            username: cached.username,
-            password: cached.password,
-            remember: cached.remember === 'true',
-            recoveryKeys: JSON.parse(cached.recoveryKeys || "[]"),
-            role: cached.role,
-            image: cached.image,
-            bio: cached.bio,
-            refreshToken: cached.refreshToken || null,
-            createdAt: cached.createdAt
+             _id: user._id.toString(),
+                username: user.username,
+                email:username.email,
+                isVerified:user.isVerified || false,
+                image: user.image,
+                bio: user.bio,
+                refreshToken: user.refreshToken || null,
+                createdAt: user.createdAt
         };
     }
 }
