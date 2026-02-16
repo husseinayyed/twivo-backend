@@ -1,4 +1,4 @@
-// middleware/jwt.js - Fastify version with auto refresh
+// middleware/jwt.js
 import { jwtMaker } from "../utils/jwt.js";
 import { User } from "../models/user.js";
 import bcrypt from "bcrypt";
@@ -9,18 +9,18 @@ const jwtAuth = async (request, reply) => {
     const accessToken = request.cookies.accessToken;
     const refreshToken = request.cookies.refreshToken;
 
-    // First try access token using fastify.jwt.verify()
+    // First try access token
     if (accessToken) {
       try {
         const decoded = await reply.server.jwt.verify(accessToken);
         request.user = decoded;
         return;
       } catch (err) {
-        // Access token invalid, continue to refresh token flow
+        // Access token invalid, continue
       }
     }
 
-    // Access token invalid or missing, try refresh token
+    // Try refresh token
     if (!refreshToken) {
       return reply.status(401).send({ 
         error: true, 
@@ -28,10 +28,10 @@ const jwtAuth = async (request, reply) => {
       });
     }
 
-    // Verify refresh token using fastify.jwt.verify()
+    // Verify refresh token
     let refreshDecoded;
     try {
-      refreshDecoded = await reply.server.jwt.verify(refreshToken, process.env.REFRESH_SECRET);
+      refreshDecoded = await reply.server.jwt.verify(refreshToken);
     } catch (err) {
       return reply.status(401).send({ 
         error: true, 
@@ -39,7 +39,7 @@ const jwtAuth = async (request, reply) => {
       });
     }
 
-    // Get user and check if refresh token matches
+    // Get user
     const user = await User.findById(refreshDecoded.id);
     if (!user) {
       return reply.status(401).send({ 
@@ -57,21 +57,20 @@ const jwtAuth = async (request, reply) => {
       });
     }
 
-    // Generate new access token
+    // FIX: Pass the fastify instance (reply.server) to jwtMaker
     const payload = { id: user._id, username: user.username };
-    const { accessToken: newAccessToken } = await jwtMaker(payload);
+    const { accessToken: newAccessToken } = await jwtMaker(reply.server, payload); // FIXED: passing reply.server
 
     // Set new access token cookie
     reply.setCookie('accessToken', newAccessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      maxAge: 10 * 60 * 1000, // 10 minutes
-      path: '/'
+      maxAge: 10 * 60 * 1000,
+      path: '/',
     });
 
-    // Attach user to request
-    request.user = { id: user._id, username: user.username };
+    request.user = payload;
 
   } catch (error) {
     request.log.error(error);

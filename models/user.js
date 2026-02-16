@@ -22,8 +22,7 @@ const sign = new db.Schema({
   },
   isVerified: {
     type:Boolean,
-    required:false,
-    default:false
+    required:true
   },
   image:{
     type: String,
@@ -35,7 +34,7 @@ const sign = new db.Schema({
   },
   refreshToken: {
     type: String,
-    required: false
+    required: false,
   }},
   {
     timestamps:true

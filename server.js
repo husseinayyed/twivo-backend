@@ -40,9 +40,6 @@ await fastify.register(cookie, {
 });
 fastify.register(jwt, {
   secret: process.env.JWT_SECRET, // Default secret
-  parseOptions: {
-    signed: true // Parse signed cookies
-  }
 })
 
 // Register routes
