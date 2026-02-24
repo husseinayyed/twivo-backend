@@ -8,9 +8,9 @@ POST http://localhost:5000/api/auth/sign
 Content-Type: application/json
 
 {
-    "name":"HusseinAyyed",
-    "email":"husseinayyed@gmail.com",
-    "username":"husseinayyed"
+    "name":"ayyed",
+    "email":"ayyed@gmail.com",
+    "username":"ayyed"
 }
 
 ### login
@@ -19,5 +19,5 @@ POST http://localhost:5000/api/auth/login
 Content-Type: application/json
 
 {
-    "magicUrl":"2d389ee5-dabc-4d3e-8148-88ce35c535e2"
+    "magicUrl":"8b065ede-6b50-4b9a-85c9-6545d76c175a"
 }

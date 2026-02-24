@@ -32,15 +32,11 @@ export default async function (fastify, options) {
     async (request, reply) => {
       try {
         const { username, email, name } = request.body;
-        const existingUser = await User.findOne({ username });
-
-        if (existingUser) {
-          return reply.status(409).send({ msg: "user already exists!" });
+       const [checkUserName,checkEmail] = await Promise.all([Cache.user.getUserByMethod("email",email),Cache.user.getUserByMethod("username",username)])
+       if (checkEmail || checkUserName) {
+          return reply.status(409).send({ msg: "email/username already exists!" });
         }
-        const existingEmail = await User.findOne({ email });
-        if (existingEmail) {
-          return reply.status(409).send({ msg: "Email already registered!" });
-        }
+       
         const magicUrl = uuid4();
         await Cache.client.set(
           `magicUrl:${magicUrl}`,
@@ -88,8 +84,8 @@ export default async function (fastify, options) {
         const [email, username, name] = data.split(":");
 
         // Check if user already exists by email
-        let user = await User.findOne({ email });
-
+         const user = await Cache.user.getUserByMethod("email",email)
+        
         if (user) {
           // User exists - update their refresh token and log them in
           const payload = { id: user._id.toString(), username: user.username };
@@ -120,14 +116,13 @@ export default async function (fastify, options) {
           });
         } else {
           // Check if username is taken by another email
-          const existingUsername = await User.findOne({ username });
+          const existingUsername = await Cache.user.getUserByMethod("username",username);
           if (existingUsername) {
             return reply.status(400).send({
               success: false,
               msg: "Username already taken. Please sign up again with a different username.",
             });
           }
-
           // Create new user since none exists with this email
           const newUser = await User.create({
             email,

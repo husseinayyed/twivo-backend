@@ -17,7 +17,6 @@ const fastify = Fastify({
 const db = mongoose;
 
 // Connect to MongoDB
-try {
 
   await db.connect(process.env.DB_URL);
   console.log("Mongodb atlas database is running");
@@ -37,10 +36,6 @@ try {
   await fastify.register(jwt, {
     secret: process.env.JWT_SECRET, // Default secret
   })
-} catch(e) {
-  throw Error(e);
-}
-
 // Register plugins
 
 // Register routes
@@ -48,7 +43,7 @@ fastify.register(api, { prefix: '/api' });
 fastify.register(auth, { prefix: '/api/auth' });
 
 // Health check route
-fastify.get('/health', async (request, reply) => {
+fastify.get('/health', _ => {
   return { status: 'ok', timestamp: new Date().toISOString() };
 });
 

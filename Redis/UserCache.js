@@ -43,6 +43,18 @@ class UserCache extends BaseCache {
       return null;
     }
   }
+  async getUserByMethod(method,token) {
+    try {
+      const id = await this._getCachedUserByMethod(method,token);
+      let cachedUser;
+      if(id) cachedUser = await this._getCachedUser(id);
+      if (cachedUser) return cachedUser;
+      return await this._fetchAndCacheUserByMethod(method,token);
+    } catch (error) {
+      console.error("Error getting user from cache:", error);
+      return null;
+    }
+  }
 
   async getUsers(userIds) {
     if (!Array.isArray(userIds) || userIds.length === 0) return [];
@@ -242,10 +254,39 @@ class UserCache extends BaseCache {
       return null;
     }
   }
-
+  async _getCachedUserByMethod(method = "email",token) {
+    const userKey = method == "email" ? `user:email:${token}` : `user:username:${token}`;
+    try {
+      const exists = await this.exists(userKey);
+      if (!exists) return null;
+      const cached = await this.get(userKey);
+      return cached;
+    } catch (error) {
+      console.error("Error getting cached user:", error);
+      return null;
+    }
+  }
   async _fetchAndCacheUser(token) {
     try {
       const user = await User.findById(token);
+      if (!user) return null;
+
+      const userData = this._formatCachedUser(user);
+
+      // Cache asynchronously
+      this.cacheUserData(userData).catch(console.error);
+
+      return userData;
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      return null;
+    }
+  }
+  async _fetchAndCacheUserByMethod(method="email",token) {
+    try {
+      let user;
+      if(method=="email") user = await User.findOne({email:token});
+      else user = await User.findOne({username:token});
       if (!user) return null;
 
       const userData = this._formatCachedUser(user);
@@ -378,20 +419,21 @@ class UserCache extends BaseCache {
     try {
       const userKey = `user:${user._id}`;
       const userFields = this._formatCachedUser(user);
-      const pipeline = this.pipeline();
+      const pipeline = this.client.pipeline();
       pipeline.hset(userKey, 604800, ...Object.entries(userFields).flat());
       pipeline.set(`user:username:${user.username}`, user._id, "EX", 604800);
       pipeline.set(`user:email:${user.email}`, user._id, "EX", 604800);
+      await pipeline.exec();
     } catch (error) {
       console.error("Error caching user data:", error);
     }
   }
 
-  _formatCachedUser(cached) {
+  _formatCachedUser(user) {
     return {
       _id: user._id.toString(),
       username: user.username,
-      email: username.email,
+      email: user.email,
       isVerified: user.isVerified || false,
       image: user.image,
       bio: user.bio,

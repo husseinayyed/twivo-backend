@@ -216,19 +216,3 @@ feed.post("/twi/hasLiked", jwtAuth, async (req, res) => {
   }
 });
 export default feed
-/*
-{
-  data: {
-    id: 'k2xTKjVN',
-    title: '219d603d8cb6',
-    url_viewer: 'https://ibb.co/k2xTKjVN',
-    url: 'https://i.ibb.co/RT9K2fGR/219d603d8cb6.png',
-    display_url: 'https://i.ibb.co/b5PV1Tjc/219d603d8cb6.png',
-    time: 1761921281,
-    expiration: 0,
-    image
-    thumb
-    medium
-    delete_url: 'https://ibb.co/k2xTKjVN/71e1cbd2e149a2e6101c64b419542162'
-  },
-*/

@@ -40,7 +40,7 @@ const jwtAuth = async (request, reply) => {
     }
 
     // Get user
-    const user = await User.findById(refreshDecoded.id);
+    const user = await Cache.user.getUser(refreshDecoded.id);
     if (!user) {
       return reply.status(401).send({ 
         error: true, 
@@ -58,7 +58,7 @@ const jwtAuth = async (request, reply) => {
     }
 
     // FIX: Pass the fastify instance (reply.server) to jwtMaker
-    const payload = { id: user._id, username: user.username };
+    const payload = { id: user._id.toString(), username: user.username };
     const { accessToken: newAccessToken } = await jwtMaker(reply.server, payload); // FIXED: passing reply.server
 
     // Set new access token cookie
