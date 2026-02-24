@@ -7,9 +7,6 @@ import helmet from "@fastify/helmet";
 import jwt from "@fastify/jwt"
 import auth from "./routes/auth.js";
 import api from "./routes/api.js";
-import feed from "./routes/feed.js";
-import user from "./routes/user.js";
-
 dotenv.config();
 
 const fastify = Fastify({
@@ -20,33 +17,35 @@ const fastify = Fastify({
 const db = mongoose;
 
 // Connect to MongoDB
-db.connect(process.env.DB_URL).then(() => {
+try {
+
+  await db.connect(process.env.DB_URL);
   console.log("Mongodb atlas database is running");
-});
+  await fastify.register(helmet, {
+    // Helmet options if needed
+  });
+  
+  await fastify.register(cors, {
+    origin: process.env.FRONTEND_URL,
+    credentials: true,
+  });
+  
+  await fastify.register(cookie, {
+    secret: process.env.COOKIE_SECRET, // Add a secret for cookie signing
+    hook: 'onRequest', // Parse cookies on request
+  });
+  await fastify.register(jwt, {
+    secret: process.env.JWT_SECRET, // Default secret
+  })
+} catch(e) {
+  throw Error(e);
+}
 
 // Register plugins
-await fastify.register(helmet, {
-  // Helmet options if needed
-});
-
-await fastify.register(cors, {
-  origin: process.env.FRONTEND_URL,
-  credentials: true,
-});
-
-await fastify.register(cookie, {
-  secret: process.env.COOKIE_SECRET, // Add a secret for cookie signing
-  hook: 'onRequest', // Parse cookies on request
-});
-fastify.register(jwt, {
-  secret: process.env.JWT_SECRET, // Default secret
-})
 
 // Register routes
 fastify.register(api, { prefix: '/api' });
 fastify.register(auth, { prefix: '/api/auth' });
-// fastify.register(feed, { prefix: '/api/feed' });
-// fastify.register(user, { prefix: '/api/user' });
 
 // Health check route
 fastify.get('/health', async (request, reply) => {

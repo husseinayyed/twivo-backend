@@ -92,7 +92,7 @@ export default async function (fastify, options) {
 
         if (user) {
           // User exists - update their refresh token and log them in
-          const payload = { id: user._id, username: user.username };
+          const payload = { id: user._id.toString(), username: user.username };
           const { accessToken, refreshToken, hashToken } = await jwtMaker(
             fastify,
             payload,
@@ -136,7 +136,7 @@ export default async function (fastify, options) {
             isVerified: false,
           });
 
-          const payload = { id: newUser._id, username: newUser.username };
+          const payload = { id: newUser._id.toString(), username: newUser.username };
           const { accessToken, refreshToken, hashToken } = await jwtMaker(
             fastify,
             payload,
