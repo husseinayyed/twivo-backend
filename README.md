@@ -1,145 +1,170 @@
-# Twivo - Social Media Backend API 🚀
+# Twivo – High-Performance Social Backend API
 
-![GitHub License](https://img.shields.io/badge/license-ISC-blue.svg)
-![Node.js Version](https://img.shields.io/badge/node-18%2B-green.svg)
-![Fastify](https://img.shields.io/badge/fastify-migrating-blue.svg)
-![MongoDB](https://img.shields.io/badge/mongodb-8.17.1-orange.svg)
-![Redis](https://img.shields.io/badge/redis-5.8.2-red.svg)
+Twivo is a performance-focused backend API for a modern social media platform inspired by Twitter/X.
 
-A high-performance, scalable backend API for a modern social media platform inspired by Twitter/X.
+The system is designed around stateless authentication, cache-first data access, modular architecture, and high-concurrency readiness.
 
-Built with a **fully passwordless authentication system**, Redis-first caching, and a performance-focused architecture.
+⚠️ This project is under active architectural refactoring and is not production-ready.
 
 ---
 
-## ⚠️ Active Refactor Notice
+# Design Goals
 
-This backend is currently undergoing a major architectural migration.
-
-- Express → Fastify migration in progress  
-- Authentication system rebuilt (fully passwordless)  
-- Custom internal image hosting replacing ImgBB  
-- Modular restructuring of routes and services  
-
-🚧 **All routes should be considered unstable.**  
-🚧 **Request and response schemas may change without notice.**  
-🚧 **Breaking changes may occur between commits.**
-
-This project is under active development and is not production-stable yet.
-
----
-
-# ✨ Features
-
-- 🔐 **Fully Passwordless Authentication** – Magic-link login (no passwords stored)
-- 🎟️ **JWT Access + Refresh Tokens** – Stateless scalable sessions
-- ⚡ **Redis-First Caching Strategy** – Feeds, likes, follows, sessions
-- 🚀 **Fastify Migration** – High-performance routing & schema validation
-- 🖼️ **Custom Image Hosting (WIP)** – Removing third-party dependency
-- 🛡️ **Security-First Design** – Secure cookies, CORS, Helmet
-- 📦 **Modular Architecture** – Clean separation of routes, models, cache
-- 📊 **Scalable MongoDB Models** – Flexible social graph design
-
----
-
-# 🧠 Architecture Philosophy
-
-Twivo is designed with:
-
+- High concurrency handling
 - Stateless authentication
 - Cache-first read strategy
-- Separation of concerns
-- Modular route architecture
-- Performance optimization mindset
+- Strict separation of concerns
 - Minimal external dependency reliance
-
-The goal is to build a backend capable of handling high concurrency and real-time workloads.
-
----
-
-# 🔐 Authentication System (Passwordless)
-
-Twivo uses a **fully passwordless model**.
-
-There is **no password field stored in the database**.
-
-Authentication flow:
-
-### 1️⃣ Request Magic Link
-`POST /api/auth/sign`
-
-User submits email (should be unique ) and username ( should be unique ) and name.  
-Server generates a secure, time-limited token and it will be sent to your email
+- Security-first architecture
 
 ---
 
-### 2️⃣ Verify Magic Link
-`POST /api/auth/login`
+# Architecture Overview
+
+Core principles:
+
+- Fastify-based HTTP layer
+- JWT stateless access control
+- Refresh token rotation with hashing
+- Redis as primary cache layer
+- MongoDB as durable storage
+- Modular route/service separation
+
+High-level flow:
+
+Client → Fastify API → Redis → MongoDB
+
+---
+
+# Authentication Model (Passwordless)
+
+Twivo uses a fully passwordless authentication model.
+
+No password fields are stored in the database.
+
+## Step 1 – Request Magic Link
+
+```
+POST /api/auth/sign
+```
+
+Input:
+- email (unique)
+- username (unique)
+- name
 
 Server:
-- Validates magic token
-- Issues Access Token (10 min)
-- Issues Refresh Token (7 days)
-- Stores hashed refresh token
+- Generates secure time-limited token
+- Sends magic link via email
+
+---
+
+## Step 2 – Verify Magic Link
+
+```
+POST /api/auth/login
+```
+
+Server:
+- Validates token
+- Issues Access Token (10m)
+- Issues Refresh Token (7d)
+- Hashes and stores refresh token
 - Sets HTTP-only secure cookies
 
 ---
 
-### 3️⃣ Refresh Access Token
-`POST /api/auth/refresh`
+## Step 3 – Refresh Token Rotation
 
+```
+POST /api/auth/refresh
+```
+
+Server:
 - Validates refresh token
 - Rotates refresh token
 - Issues new access token
 
+Refresh tokens are rotated on every use to reduce replay risk.
+
 ---
 
-# 🛠️ Tech Stack
+# Caching Strategy (Redis-First)
+
+Redis is used as the primary read layer.
+
+Examples:
+- Session storage
+- Feed caching
+- Like counters
+- Follow relationships
+
+Read Strategy:
+1. Attempt Redis lookup
+2. Fallback to MongoDB
+3. Repopulate Redis cache
+
+This significantly reduces database pressure under high concurrency.
+
+---
+
+# Media Architecture
+
+Twivo does not rely on third-party image hosting services.
+
+An independent high-performance image server is currently under development using:
+
+- C++
+- uWebSockets
+
+This image server will operate as a separate service and will later be integrated into Twivo as an internal media infrastructure component.
+
+Goal:
+- Maximum performance
+- Minimal overhead
+- Full infrastructure control
+
+---
+
+# Tech Stack
 
 ## Core
 - Node.js (18+)
-- Fastify (primary framework – Express being deprecated)
-- MongoDB (Mongoose ODM)
+- Fastify
+- MongoDB (Mongoose)
 - Redis (ioredis)
 
-## Authentication & Security
-- Passwordless Magic-Link System
-- JWT (Access & Refresh Tokens)
+## Security
+- JWT (Access + Refresh)
 - Secure HTTP-only cookies
 - Helmet
 - CORS
 
-## Media & File Handling
-- Multer
-- Sharp
-- Custom Image Hosting Server (WIP)
+## Media
+- Custom C++ Image Server (uWebSockets) – In Development
 
 ---
 
-# 📦 Installation
+# Installation
 
-## Prerequisites
+## Clone Repository
 
-- Node.js v18+
-- MongoDB (Atlas or local)
-- Redis (recommended)
-
----
-
-## Setup
-
-### 1. Clone Repository
-
-```bash
+```
 git clone https://github.com/husseinayyed/twivo-backend.git
 cd twivo-backend
+```
 
-2. Install Dependencies
+## Install Dependencies
 
+```
 npm install
+```
 
-3. Create .env File
+## Environment Variables
 
+Create a `.env` file:
+
+```
 DB_URL=mongodb+srv://<username>:<password>@cluster.mongodb.net/twivo
 JWT_SECRET=your_jwt_secret
 REFRESH_SECRET=your_refresh_secret
@@ -147,134 +172,97 @@ FRONTEND_URL=http://localhost:3000
 PORT=5000
 REDIS_URL=redis://localhost:6379
 NODE_ENV=development
+```
 
-4. Start Server
+## Run Development Server
 
+```
 npm run dev
+```
 
-Server runs on:
+Server runs at:
 
+```
 http://localhost:5000
-
+```
 
 ---
 
-📁 Project Structure (Evolving)
+# Project Structure
 
+```
 twivo-backend/
 ├── server.js
 ├── routes/
+├── services/
 ├── models/
 ├── middleware/
 ├── Redis/
 ├── utils/
 └── README.md
+```
 
-Structure may change during refactor.
-
-
----
-
-🚧 Roadmap
-
-In Progress
-
-Complete Express → Fastify migration
-
-Strengthen refresh token rotation
-
-Deploy internal image hosting server
-
-Schema validation improvements
-
-
-Planned
-
-WebSocket real-time updates
-
-Comment system
-
-Direct messaging
-
-Notification system
-
-Monitoring & metrics
-
-API versioning
-
-
+Structure may evolve during refactor.
 
 ---
 
-🧪 Stability & Versioning
+# Roadmap
 
-API is currently unstable
+In Progress:
+- Complete Express → Fastify migration
+- Harden refresh token rotation logic
+- Integrate internal C++ image server
+- Improve schema validation
 
-Schemas may change
-
-Breaking changes are possible
-
-Semantic versioning will be introduced after stabilization
-
-
-Production deployment is not recommended yet.
-
+Planned:
+- WebSocket-based real-time updates
+- Comment system
+- Direct messaging
+- Notification service
+- Monitoring & metrics
+- API versioning
 
 ---
 
-🤝 Contributing
+# Stability Notice
 
-Contributions are open and always welcome.
+- API contracts may change
+- Breaking changes are possible
+- Not production-stable
 
-You can help with:
+Semantic versioning will be introduced after stabilization.
 
-Performance optimization
+---
 
-Security improvements
+# Contributing
 
-Testing coverage
+Contributions are welcome.
 
-Architectural refinements
+Recommended focus areas:
+- Performance profiling
+- Security auditing
+- Test coverage
+- Architectural improvements
 
-Feature proposals
+Contribution flow:
 
-
-Contribution Flow
-
+```
 git checkout -b feature/your-feature
 git commit -m "feat: describe change"
 git push origin feature/your-feature
+```
 
-Then open a Pull Request.
-
-
----
-
-👨‍💻 Author
-
-Hussein Ayyed
-GitHub: https://github.com/husseinayyed
-
-Backend-focused developer building scalable, secure, and performance-driven systems.
-
+Open a Pull Request after pushing.
 
 ---
 
-📝 License
+# License
 
-Licensed under the ISC License.
-
-You are free to use, modify, and distribute this software (including commercial use) provided the license notice is included.
-
+Licensed under GNU Affero General Public License v3.0 (AGPL-3.0).
 
 ---
 
-⭐ Support
+# Author
 
-If you find this project interesting:
-
-⭐ Star the repository
-
-🐛 Open issues
-
-🚀 Contribute improvements
+Hussein Ayyed  
+https://github.com/husseinayyed
