@@ -1,118 +1,14 @@
 import express from "express";
-import { rateLimit } from 'express-rate-limit'
 import jwtAuth from "../middleware/jwt.js";
-import multer from "multer"
 import { Content } from "../models/content.js";
 import Cache from "../utils/cache.js";
 import { Twi } from "../models/twi.js";
 import { Like } from "../models/like.js"
 const feed = express.Router()
-const createLimiter = rateLimit({
-    windowMs: 1 * 60 * 1000,
-    limit: 10
-})
-const upload = multer({storage:multer.memoryStorage()})
 
 
 
-feed.post("/create", createLimiter, jwtAuth, upload.single("file"), async (req, res) => {
-  try {
-    const { text } = req.body;
-    const file = req.file;
-    
-    if (!text) {
-      return res.status(400).json({ msg: "Text field is required" });
-    }
 
-    let json = null;
-    let aspect = null;
-    let imageUrl = null;
-    let deleteUrl = null;
-
-    // Only process file if it exists
-    if (file) {
-      const formData = new FormData();
-      formData.append('image', file.buffer.toString('base64'));
-
-      const response = await fetch(`https://api.imgbb.com/1/upload?key=${process.env.IMGBB_API}`, {
-        method: "POST",
-        body: formData,
-        timeout: 30000,
-      });
-
-      if (!response.ok) {
-        throw new Error(`ImgBB API error: ${response.status}`);
-      }
-
-      json = await response.json();
-
-      // Check if json.data exists
-      if (!json.data) {
-        throw new Error("Invalid response from ImgBB API");
-      }
-
-      // Calculate aspect ratio
-      if (json.data.width > json.data.height) aspect = "horizontal";
-      else if (json.data.width < json.data.height) aspect = "vertical";
-      else aspect = "square";
-
-      imageUrl = json.data.url;
-      deleteUrl = json.data.delete_url;
-    }
-    const newfeed = await Twi.create({
-      author: {
-        userId: req.user.id,
-        username: req.user.username,
-        image: req.user.image || null
-      },
-      content: {
-        text,
-        attachment: file ? true : false,
-        image: imageUrl,
-        aspectClass: aspect,
-        deleteUrl: deleteUrl
-      },
-      likes: 0,
-      comments: 0
-    });
- const get = await Cache.twi.addToFeedCache(newfeed)
- 
-  // In your create tweet route:
-return res.status(201).json({
-  success: true,
-  feed: {
-    _id: newfeed._id.toString(),
-    twiId: newfeed._id.toString(),
-    author: {
-      userId: req.user.id,
-      username: req.user.username,
-      image: req.user.image || 'default'
-    },
-    comments: 0,
-    content: {
-      text: text,
-      attachment: file ? true : false,
-      image: imageUrl || null,
-      aspectClass: aspect || null,
-      deleteUrl: deleteUrl || null
-    },
-    createdAt: newfeed.createdAt,
-    likes: 0,
-    isLiked: false,
-    isFollowing: false,
-    followsYou: false,
-    myself: true
-  }
-})
-
-  } catch (error) {
-    console.error("Error creating feed:", error);
-    return res.status(500).json({ 
-      e: true, 
-      msg: error.message || "Failed to create feed" 
-    });
-  }
-});
 feed.get("/all",jwtAuth,async (req,res)=>{
   try {
    const startTime = Date.now();

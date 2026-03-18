@@ -7,6 +7,12 @@ import helmet from "@fastify/helmet";
 import jwt from "@fastify/jwt"
 import auth from "./routes/auth.js";
 import api from "./routes/api.js";
+import startReading from "./consumer/stream.js";
+import setup from "./consumer/setup.js";
+import feed from "./routes/feed.js";
+import user from "./routes/user.js";
+import { Initialize } from "./utils/edsaTokenMaker.js";
+
 dotenv.config();
 
 const fastify = Fastify({
@@ -36,11 +42,15 @@ const db = mongoose;
   await fastify.register(jwt, {
     secret: process.env.JWT_SECRET, // Default secret
   })
-// Register plugins
-
+ // start the consumer
+ await setup("media_stream","backend");
+ startReading();
+  // Register plugins
+Initialize();
 // Register routes
 fastify.register(api, { prefix: '/api' });
 fastify.register(auth, { prefix: '/api/auth' });
+fastify.register(user, { prefix: '/api/user' });
 
 // Health check route
 fastify.get('/health', _ => {

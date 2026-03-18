@@ -1,28 +1,16 @@
 import mongoose from "mongoose"
 const db = mongoose
 const twis = new db.Schema({
-  author:{
-    userId:{
-      type:mongoose.Schema.Types.ObjectId,
-      required:true
-    },
-    username:{
+  madeBy:{
       type:String,
       required:true
     },
-    image:{
-      type:String,
-      required:false,
-      default:null
-    }
-  },
-  content: {
-    text: {
+  text: {
       type: String,
       required: true,
       trim: true,
     },
-    attachment: {
+  attachment: {
       type: Boolean,
       required: true,
       default: false,
@@ -30,18 +18,14 @@ const twis = new db.Schema({
   image: {
     type: String,
     required: false,
+    default:null,
     trim: true,
   },
   aspectClass: {
     type: String,
     required: false,
+    default:null,
     trim: true,
-  },
-  deleteUrl: {
-    type: String,
-    required: false,
-    trim: true,
-  },
   },
   likes: {
     type: Number,

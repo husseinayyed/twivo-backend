@@ -1,5 +1,4 @@
 import Redis from "ioredis";
-import RedisMock from "ioredis-mock";
 import UserCache from "../Redis/UserCache.js";
 import TwiCache from "../Redis/TwiCache.js";
 import LikeCache from "../Redis/LikeCache.js";
@@ -9,13 +8,16 @@ dotenv.config()
 class CacheService {
   constructor() {
   
-    this.client = process.env.REDIS_ENV === 'PRO' 
-      ? new Redis(process.env.REDIS_URL,{
+    this.client = new Redis(process.env.REDIS_URL,{
           family: 4,
           keepAlive: 10000,
           noDelay: true
-        }) 
-      : new RedisMock();
+        })
+      this.blockingClient = new Redis(process.env.REDIS_URL,{
+          family: 4,
+          keepAlive: 10000,
+          noDelay: true
+        })
     this.client.on("error", (err) => console.error("Redis error:", err));
     this.client.on("connect", () => console.log("Connected to Redis server " + process.env.REDIS_ENV));
     this.user = new UserCache(this.client,this);

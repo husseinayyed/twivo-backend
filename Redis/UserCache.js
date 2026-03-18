@@ -68,7 +68,21 @@ class UserCache extends BaseCache {
   }
 
   // ========== USER TWIS METHODS ==========
-
+  async addTwiToPendingList() {
+    return 0;
+  };
+  async addTwiToUserCache(twi) {
+  try {
+    const tweetId = twi._id;
+    if (!tweetId) return;
+    const pipeline = this.client.pipeline();
+    pipeline.hset(`twi:${tweetId}`, this._createTwiCacheData(twi));
+    pipeline.expire(`twi:${tweetId}`, 300); // or 500 as originally intended
+    await pipeline.exec();
+  } catch (error) {
+    console.error("Error adding twi to cache:", error);
+  }
+}
   async _getCachedUserTwis(userId) {
     const twisKey = `user:${userId}:twis`;
     try {
@@ -216,11 +230,11 @@ class UserCache extends BaseCache {
         pipeline.rpush(twisKey, JSON.stringify(twi));
 
         // Cache individual tweet
-        const tweetId = twi.twiId || twi._id;
+        const tweetId = twi._id;
         if (tweetId) {
           pipeline.hset(
             `twi:${tweetId}`,
-            this._createTwiCacheData(twi, userId),
+            this._createTwiCacheData(twi),
           );
           pipeline.expire(`twi:${tweetId}`, 300);
         }
@@ -259,7 +273,7 @@ class UserCache extends BaseCache {
     try {
       const exists = await this.exists(userKey);
       if (!exists) return null;
-      const cached = await this.get(userKey);
+      const cached = await this.client.get(userKey);
       return cached;
     } catch (error) {
       console.error("Error getting cached user:", error);
@@ -394,24 +408,17 @@ class UserCache extends BaseCache {
     }
   }
 
-  _createTwiCacheData(twi, userId) {
-    const content = twi.content || {};
-
+  _createTwiCacheData(twi) {
     return {
-      twiId: twi.twiId || twi._id || "",
-      text: content.text || "",
+      id: twi._id.toString() || "",
+      madeBy: twi.madeBy.toString(),
+      text: twi.text || "",
       likes: (twi.likes || 0).toString(),
       comments: (twi.comments || 0).toString(),
-      shares: (twi.shares || 0).toString(),
-      attachment: (content.attachment || false).toString(),
-      image: content.image || "",
-      aspectClass: content.aspectClass || "",
-      deleteUrl: content.deleteUrl || "",
+      attachment: (twi.attachment || false).toString(),
+      image: twi.image || "",
+      aspectClass: twi.aspectClass || "",
       createdAt: twi.createdAt?.toISOString() || new Date().toISOString(),
-      authorUserId: userId,
-      authorUsername: twi.author?.username || "",
-      authorImage: twi.author?.image || "",
-      authorName: twi.author?.name || "",
     };
   }
 

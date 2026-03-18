@@ -1,8 +1,7 @@
 // middleware/jwt.js
 import { jwtMaker } from "../utils/jwt.js";
-import { User } from "../models/user.js";
 import bcrypt from "bcrypt";
-
+import Cache from "../utils/cache.js";
 const jwtAuth = async (request, reply) => {
   try {
     // Get tokens from cookies
