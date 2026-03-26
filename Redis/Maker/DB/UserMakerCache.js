@@ -3,12 +3,14 @@ import Cache from "../../../utils/cache.js"
 
 class UserMakerCacheClass {
     constructor() {}
-    async addTwiToUserDB(userId,text,attachment) {
+    async addTwiToUserDB(userId,text,attachment = false,image=null,aspectClass=null) {
         try {
             const twi = await Twi.create({
                 madeBy:userId,
                 text:text,
                 attachment:attachment,
+                aspectClass: aspectClass,
+                image: image,
                 likes:0,
                 comments:0,
             })

@@ -3,6 +3,8 @@ import { SignJWT, importPKCS8 } from 'jose';   // 👈 Add importPKCS8
 import { v4 as uuidv4 } from 'uuid';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
+import { ObjectId } from 'mongodb';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const privateKeyPath = resolve(__dirname, '..','keys', 'ed25519_private.pem');
@@ -13,8 +15,8 @@ const privateKey = await importPKCS8(privateKeyPem, 'EdDSA');
 function Initialize() { 
     console.log("EdsaToken maker is ready...")
  }
-async function signEd25519Token(userId, action = 'uploadImage', expiresIn = 5) {
-  return new SignJWT({ action })
+async function signEd25519Token(userId, action = 'uploadImage', expiresIn = 5,id) {
+  return new SignJWT({ action,id:id })
     .setProtectedHeader({ alg: 'EdDSA' })
     .setIssuer('twivo-backend')
     .setSubject(userId)

@@ -43,8 +43,11 @@ const db = mongoose;
     secret: process.env.JWT_SECRET, // Default secret
   })
  // start the consumer
- await setup("media_stream","backend");
- startReading();
+ await setup("uploads:stream","backend");
+ startReading().catch(error => {
+  console.error("❌ Consumer crashed:", error);
+  // Optionally, you could implement a retry mechanism here
+});
   // Register plugins
 Initialize();
 // Register routes

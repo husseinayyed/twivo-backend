@@ -7,6 +7,7 @@ import Cache from '../utils/cache.js';
 import jwtAuth from '../middleware/jwt.js';
 import signEd25519Token from '../utils/edsaTokenMaker.js';
 import UserMakerCache from '../Redis/Maker/DB/UserMakerCache.js';
+import { ObjectId } from 'mongodb';
 // Assuming you have a rate limiter for create endpoint
 // import createLimiter from '../middleware/rateLimiter.js';
 
@@ -148,8 +149,16 @@ async function userRoutes(fastify, options) {
     try {
       if(!request.body.attachment) {
         const response = await UserMakerCache.addTwiToUserDB(request.user.id,request.body.text,false);
-      if(response) return reply.status(201).send({s:4})
-        else return reply.status(400).send({s:7})
+      if(response) return reply.status(201).send({ok:true,response})
+        else return reply.status(400).send({error:true})
+      } else {
+        const twiId = new ObjectId()
+        fastify.log.info("twi id: " + twiId)
+        if(await Cache.user.addTwiToPendingList(twiId,request.body.text)){
+          return await signEd25519Token(request.user.id,"uploadImage",3,twiId.toString());
+        } else {
+        return reply.status(500).send({error:true})
+        }
       }
     } catch (error) {
       fastify.log.error(error);

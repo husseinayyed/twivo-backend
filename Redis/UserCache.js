@@ -1,6 +1,7 @@
 import BaseCache from "./BaseCache.js";
 import { User } from "../models/user.js";
 import { Twi } from "../models/twi.js";
+import { ObjectId } from "mongodb";
 
 class UserCache extends BaseCache {
   constructor(client, cacheService) {
@@ -43,13 +44,13 @@ class UserCache extends BaseCache {
       return null;
     }
   }
-  async getUserByMethod(method,token) {
+  async getUserByMethod(method, token) {
     try {
-      const id = await this._getCachedUserByMethod(method,token);
+      const id = await this._getCachedUserByMethod(method, token);
       let cachedUser;
-      if(id) cachedUser = await this._getCachedUser(id);
+      if (id) cachedUser = await this._getCachedUser(id);
       if (cachedUser) return cachedUser;
-      return await this._fetchAndCacheUserByMethod(method,token);
+      return await this._fetchAndCacheUserByMethod(method, token);
     } catch (error) {
       console.error("Error getting user from cache:", error);
       return null;
@@ -68,21 +69,30 @@ class UserCache extends BaseCache {
   }
 
   // ========== USER TWIS METHODS ==========
-  async addTwiToPendingList() {
-    return 0;
-  };
-  async addTwiToUserCache(twi) {
-  try {
-    const tweetId = twi._id;
-    if (!tweetId) return;
-    const pipeline = this.client.pipeline();
-    pipeline.hset(`twi:${tweetId}`, this._createTwiCacheData(twi));
-    pipeline.expire(`twi:${tweetId}`, 300); // or 500 as originally intended
-    await pipeline.exec();
-  } catch (error) {
-    console.error("Error adding twi to cache:", error);
+  async addTwiToPendingList(twiId,text) {
+    try {
+      const twi = {
+        _id: twiId.toString(),
+        text: text,
+      };
+      await this.addTwiToUserCache(twi);
+      return true;
+    } catch (error) {
+      return null;
+    }
   }
-}
+  async addTwiToUserCache(twi, age = 300) {
+    try {
+      const tweetId = twi._id;
+      if (!tweetId) return;
+      const pipeline = this.client.pipeline();
+      pipeline.hset(`twi:${tweetId}`, this._createTwiCacheData(twi));
+      pipeline.expire(age);
+      await pipeline.exec();
+    } catch (error) {
+      console.error("Error adding twi to cache:", error);
+    }
+  }
   async _getCachedUserTwis(userId) {
     const twisKey = `user:${userId}:twis`;
     try {
@@ -232,10 +242,7 @@ class UserCache extends BaseCache {
         // Cache individual tweet
         const tweetId = twi._id;
         if (tweetId) {
-          pipeline.hset(
-            `twi:${tweetId}`,
-            this._createTwiCacheData(twi),
-          );
+          pipeline.hset(`twi:${tweetId}`, this._createTwiCacheData(twi));
           pipeline.expire(`twi:${tweetId}`, 300);
         }
       }
@@ -268,8 +275,9 @@ class UserCache extends BaseCache {
       return null;
     }
   }
-  async _getCachedUserByMethod(method = "email",token) {
-    const userKey = method == "email" ? `user:email:${token}` : `user:username:${token}`;
+  async _getCachedUserByMethod(method = "email", token) {
+    const userKey =
+      method == "email" ? `user:email:${token}` : `user:username:${token}`;
     try {
       const exists = await this.exists(userKey);
       if (!exists) return null;
@@ -296,11 +304,11 @@ class UserCache extends BaseCache {
       return null;
     }
   }
-  async _fetchAndCacheUserByMethod(method="email",token) {
+  async _fetchAndCacheUserByMethod(method = "email", token) {
     try {
       let user;
-      if(method=="email") user = await User.findOne({email:token});
-      else user = await User.findOne({username:token});
+      if (method == "email") user = await User.findOne({ email: token });
+      else user = await User.findOne({ username: token });
       if (!user) return null;
 
       const userData = this._formatCachedUser(user);
@@ -408,19 +416,19 @@ class UserCache extends BaseCache {
     }
   }
 
-  _createTwiCacheData(twi) {
+ _createTwiCacheData(twi) {
     return {
-      id: twi._id.toString() || "",
-      madeBy: twi.madeBy.toString(),
-      text: twi.text || "",
-      likes: (twi.likes || 0).toString(),
-      comments: (twi.comments || 0).toString(),
-      attachment: (twi.attachment || false).toString(),
-      image: twi.image || "",
-      aspectClass: twi.aspectClass || "",
-      createdAt: twi.createdAt?.toISOString() || new Date().toISOString(),
+        id: twi._id?.toString() || "",
+        madeBy: twi.madeBy?.toString() || "",
+        text: twi.text || "",
+        likes: (twi.likes ?? 0).toString(),
+        comments: (twi.comments ?? 0).toString(),
+        attachment: (twi.attachment ?? false).toString(),
+        image: twi.image || "",
+        aspectClass: twi.aspectClass || "",
+        createdAt: twi.createdAt?.toISOString() || new Date().toISOString(),
     };
-  }
+}
 
   async cacheUserData(user) {
     try {

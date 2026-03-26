@@ -1,6 +1,7 @@
+import UserMakerCache from "../Redis/Maker/DB/UserMakerCache.js";
 import Cache from "../utils/cache.js";
 async function startReading() {
-    const STREAM = "media_stream";
+    const STREAM = "uploads:stream";
     const GROUP = "backend";
     const CONSUMER = "server-1";
     while(true) {
@@ -27,6 +28,20 @@ async function startReading() {
 }
 }
 async function processMessage(fields) {
-    console.log(fields)
+  try {
+    const id = fields[1];
+    const user_id = fields[3]
+    const path = fields[5]
+    const orientation = fields[7]
+    const textField = await Cache.client.hgetall(`twi:${id}`);
+    if(!textField) throw Error("Not found " + id);
+    console.log(`Processing image for user ${user_id}`);
+    console.log(`Image path: ${path}`);
+    console.log(`Orientation: ${orientation}`);
+    await UserMakerCache.addTwiToUserDB(user_id,textField.text,true,path,orientation)
+  } catch (error) {
+    console.log(error)
+    return null;
+  }
 }
 export default startReading;
