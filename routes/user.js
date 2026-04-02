@@ -7,7 +7,11 @@ import Cache from '../utils/cache.js';
 import jwtAuth from '../middleware/jwt.js';
 import signEd25519Token from '../utils/edsaTokenMaker.js';
 import UserMakerCache from '../Redis/Maker/DB/UserMakerCache.js';
+<<<<<<< Updated upstream
 import { ObjectId } from 'mongodb';
+=======
+import { createTwiSchema } from './schemas/feedSchemas.js';
+>>>>>>> Stashed changes
 // Assuming you have a rate limiter for create endpoint
 // import createLimiter from '../middleware/rateLimiter.js';
 
@@ -141,13 +145,14 @@ async function userRoutes(fastify, options) {
   // });
 
   // Create a new tweet (feed item)
-  // If you have a rate limiter, register it as a preHandler
   fastify.post('/create', {
-    preHandler: jwtAuth, // uncomment if you have a Fastify rate limiter
-
+    preHandler: jwtAuth,
+    schema:createTwiSchema
   }, async (request, reply) => {
     try {
+      // check if the user wants to provide an image
       if(!request.body.attachment) {
+        
         const response = await UserMakerCache.addTwiToUserDB(request.user.id,request.body.text,false);
       if(response) return reply.status(201).send({ok:true,response})
         else return reply.status(400).send({error:true})
@@ -159,7 +164,6 @@ async function userRoutes(fastify, options) {
         } else {
         return reply.status(500).send({error:true})
         }
-      }
     } catch (error) {
       fastify.log.error(error);
       reply.status(500).send({

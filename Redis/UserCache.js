@@ -81,17 +81,19 @@ class UserCache extends BaseCache {
       return null;
     }
   }
-  async addTwiToUserCache(twi, age = 300) {
-    try {
-      const tweetId = twi._id;
-      if (!tweetId) return;
-      const pipeline = this.client.pipeline();
-      pipeline.hset(`twi:${tweetId}`, this._createTwiCacheData(twi));
-      pipeline.expire(age);
-      await pipeline.exec();
-    } catch (error) {
-      console.error("Error adding twi to cache:", error);
-    }
+  async addTwiToUserCache(twi,age = 86400) {
+  try {
+    const tweetId = twi._id;
+    if (!tweetId) return;
+    const pipeline = this.client.pipeline();
+    pipeline.hset(`twi:${tweetId}`, this._createTwiCacheData(twi));
+    pipeline.expire(`twi:${tweetId}`, age); // 24 hours
+    await pipeline.exec();
+    return true;
+  } catch (error) {
+    console.error("Error adding twi to cache:", error);
+    return null;
+  }
   }
   async _getCachedUserTwis(userId) {
     const twisKey = `user:${userId}:twis`;

@@ -8,9 +8,9 @@ POST http://localhost:5000/api/auth/sign
 Content-Type: application/json
 
 {
-    "name":"nisni",
-    "email":"nics@gmail.com",
-    "username":"cnis"
+    "name":"nisssnif",
+    "email":"niccdsscf@gmail.com",
+    "username":"ccdccnis"
 }
 
 ### login
@@ -19,5 +19,5 @@ POST http://localhost:5000/api/auth/login
 Content-Type: application/json
 
 {
-    "magicUrl":"6749b029-d0b7-4ca5-877b-dcb6310ebb05"
-}
+    "magicUrl":"21d71abe-18df-482c-91c3-96ab6b93c0d6"    }
+    

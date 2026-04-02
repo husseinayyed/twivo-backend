@@ -82,21 +82,22 @@ export default async function (fastify, options) {
         }
 
         const [email, username, name] = data.split(":");
-
+        let newUser;
         // Check if user already exists by email
-         const user = await Cache.user.getUserByMethod("email",email)
         
-        if (user) {
+        const user = await Cache.user.getUserByMethod("email",email)
+        
+         if (user) {
           // User exists - update their refresh token and log them in
           const payload = { id: user._id.toString(), username: user.username };
           const { accessToken, refreshToken, hashToken } = await jwtMaker(
             fastify,
             payload,
           );
-
+          const userDB = await User.findOne({email:email})
           // Update user's refresh token
-          user.refreshToken = hashToken;
-          await user.save();
+          userDB.refreshToken = hashToken;
+          await userDB.save();
 
           // Set cookies
           reply.setCookie("accessToken", accessToken, {
@@ -124,7 +125,7 @@ export default async function (fastify, options) {
             });
           }
           // Create new user since none exists with this email
-          const newUser = await User.create({
+          newUser = await User.create({
             email,
             username,
             name,
@@ -157,7 +158,7 @@ export default async function (fastify, options) {
             path: "/",
           });
         }
-        await Cache.user.cacheUserData(user);
+        await Cache.user.cacheUserData(newUser);
         await Cache.client.del(key);
         return reply.status(user == null ? 201 : 200).send({
           success: true,
