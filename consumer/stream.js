@@ -40,13 +40,15 @@ async function processMessage(id, fields) {
     const userId = fields[3];
     const mediaPath = fields[5];
     const orientation = fields[7];
+    const attachment = true;
     const textField = await Cache.client.hgetall(`twi:${id}`);
     if (!textField) throw new Error("Not found " + id);
     const text = textField.text;
-    console.log(`Processing image for user ${userId}`);
-    console.log(`Image path: ${mediaPath}`);
-    console.log(`Orientation: ${orientation}`);
-    await UserMakerCache.addTwiToUserDB(userId, text, true, mediaPath, orientation);
+    await addTwiToQueue(text,userId,attachment,mediaPath,orientation);
+    // console.log(`Processing image for user ${userId}`);
+    // console.log(`Image path: ${mediaPath}`);
+    // console.log(`Orientation: ${orientation}`);
+    // await UserMakerCache.addTwiToUserDB(userId, text, true, mediaPath, orientation);
   } catch (error) {
     console.log(error);
     return null;
