@@ -3,7 +3,6 @@ import Cache from "../../../utils/cache.js"
 
 class UserMakerCacheClass {
     constructor() {}
-<<<<<<< Updated upstream
     async addTwiToUserDB(userId,text,attachment,image,aspectClass) {
         try {
             const twi = await Twi.create({

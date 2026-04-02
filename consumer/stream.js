@@ -52,16 +52,4 @@ async function processMessage(id, fields) {
     return null;
   }
 }
-}
 export default startReading;
-
-// // [
-//   'event',
-//   'upload_complete',
-//   'user_id',
-//   '69bd70ab8ee190dc9ecc5f12',
-//   'path',
-//   '69/bd70/70ab8ee190dc9ecc5f12/d3b1c9be-1752-40bf-aa40-5bc58a80b190.webp',
-//   'orientation',
-//   'horizontal'
-// // ]
