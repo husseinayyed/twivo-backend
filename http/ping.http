@@ -19,5 +19,5 @@ POST http://localhost:5000/api/auth/login
 Content-Type: application/json
 
 {
-    "magicUrl":"21d71abe-18df-482c-91c3-96ab6b93c0d6"    }
+    "magicUrl":"db00d8f7-f8c8-4366-be40-45d22db5074b"    }
     

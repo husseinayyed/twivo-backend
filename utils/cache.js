@@ -16,11 +16,10 @@ class CacheService {
       family: 4,
       keepAlive: 10000,
       noDelay: true,
+      maxRetriesPerRequest: null, // Add this for BullMQ compatibility
     });
     this.client.on("error", (err) => console.error("Redis error:", err));
-    this.client.on("connect", () =>
-      console.log("Connected to Redis server " + process.env.REDIS_ENV),
-    );
+    this.client.on("connect", () => console.log("Connected to Redis server"));
     this.user = new UserCache(this.client, this);
     this.twi = new TwiCache(this.client, this);
     this.like = new LikeCache(this.client, this);

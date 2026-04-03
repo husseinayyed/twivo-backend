@@ -44,7 +44,7 @@ async function processMessage(id, fields) {
     const textField = await Cache.client.hgetall(`twi:${id}`);
     if (!textField) throw new Error("Not found " + id);
     const text = textField.text;
-    await addTwiToQueue(text,userId,attachment,mediaPath,orientation);
+    await addTwiToQueue(text,userId,attachment,mediaPath,orientation,id);
     // console.log(`Processing image for user ${userId}`);
     // console.log(`Image path: ${mediaPath}`);
     // console.log(`Orientation: ${orientation}`);

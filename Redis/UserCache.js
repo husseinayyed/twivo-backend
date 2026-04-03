@@ -75,10 +75,9 @@ class UserCache extends BaseCache {
         _id: twiId.toString(),
         text: text,
       };
-      await this.addTwiToUserCache(twi);
-      return true;
+      return this.addTwiToUserCache(twi);
     } catch (error) {
-      return null;
+      return new Error()
     }
   }
   async addTwiToUserCache(twi,age = 86400) {

@@ -1,14 +1,15 @@
 // routes/user.js - Fastify plugin
 
-import fp from 'fastify-plugin';
-import { User } from '../models/user.js';
-import { Twi } from '../models/twi.js';
-import Cache from '../utils/cache.js';
-import jwtAuth from '../middleware/jwt.js';
-import signEd25519Token from '../utils/edsaTokenMaker.js';
-import UserMakerCache from '../Redis/Maker/DB/UserMakerCache.js';
-import { ObjectId } from 'mongodb';
-import { createTwiSchema } from './schemas/feedSchemas.js';
+import fp from "fastify-plugin";
+import { User } from "../models/user.js";
+import { Twi } from "../models/twi.js";
+import Cache from "../utils/cache.js";
+import jwtAuth from "../middleware/jwt.js";
+import signEd25519Token from "../utils/edsaTokenMaker.js";
+import UserMakerCache from "../Redis/Maker/DB/UserMakerCache.js";
+import { ObjectId } from "mongodb";
+import { createTwiSchema } from "./schemas/feedSchemas.js";
+import TwiQueue from "../queue/Twi/Twi.js";
 // Assuming you have a rate limiter for create endpoint
 // import createLimiter from '../middleware/rateLimiter.js';
 
@@ -16,42 +17,51 @@ async function userRoutes(fastify, options) {
   // ========== ROUTES ==========
 
   // Ping
-  fastify.get('/ping', async (request, reply) => {
+  fastify.get("/ping", async (request, reply) => {
     reply.status(200).send();
   });
 
   // Follow/unfollow a user
-  fastify.post('/follow', async (request, reply) => {
+  fastify.post("/follow", async (request, reply) => {
     const { targetUserId } = request.body;
     if (!targetUserId) {
-      return reply.status(400).send({ e: true, msg: 'targetUserId is required' });
+      return reply
+        .status(400)
+        .send({ e: true, msg: "targetUserId is required" });
     }
     if (targetUserId === request.user.id) {
-      return reply.status(400).send({ e: true, msg: 'You cannot follow yourself' });
+      return reply
+        .status(400)
+        .send({ e: true, msg: "You cannot follow yourself" });
     }
 
     try {
-      const result = await Cache.follow.followUser(request.user.id, targetUserId);
+      const result = await Cache.follow.followUser(
+        request.user.id,
+        targetUserId,
+      );
       if (result) {
-        return reply.status(200).send({ e: false, msg: 'Follow status toggled' });
+        return reply
+          .status(200)
+          .send({ e: false, msg: "Follow status toggled" });
       } else {
-        return reply.status(500).send({ e: true, msg: 'An error occurred' });
+        return reply.status(500).send({ e: true, msg: "An error occurred" });
       }
     } catch (error) {
       fastify.log.error(error);
-      reply.status(500).send({ e: true, msg: 'An error occurred' });
+      reply.status(500).send({ e: true, msg: "An error occurred" });
     }
   });
 
   // Get current user's profile
-  fastify.get('/profile', async (request, reply) => {
+  fastify.get("/profile", async (request, reply) => {
     const start = Date.now();
     try {
       const userId = request.user.id;
 
       const userData = await Cache.user.getUser(userId);
       if (!userData) {
-        return reply.status(404).send({ error: 'User not found' });
+        return reply.status(404).send({ error: "User not found" });
       }
 
       const { username, bio, image, createdAt } = userData;
@@ -76,19 +86,19 @@ async function userRoutes(fastify, options) {
       });
     } catch (error) {
       fastify.log.error(error);
-      reply.status(500).send({ error: 'Failed to load profile' });
+      reply.status(500).send({ error: "Failed to load profile" });
     }
   });
 
   // Get another user's profile by ID
-  fastify.get('/:id', async (request, reply) => {
+  fastify.get("/:id", async (request, reply) => {
     try {
       const userId = request.params.id;
       const viewerId = request.user.id;
 
       const userProfile = await Cache.user.getUser(userId);
       if (!userProfile) {
-        return reply.status(404).send({ error: 'User not found' });
+        return reply.status(404).send({ error: "User not found" });
       }
 
       fastify.log.info(userProfile);
@@ -113,8 +123,8 @@ async function userRoutes(fastify, options) {
           _id: userProfile._id,
           userId: userProfile._id,
           username: userProfile.username,
-          bio: userProfile.bio || '',
-          image: userProfile.image || '',
+          bio: userProfile.bio || "",
+          image: userProfile.image || "",
           createdAt: userProfile.createdAt,
           isVerified: userProfile.isVerified || false,
           myself: viewerId === userId,
@@ -130,7 +140,7 @@ async function userRoutes(fastify, options) {
     } catch (error) {
       fastify.log.error(error);
       reply.status(500).send({
-        error: 'Failed to load user profile',
+        error: "Failed to load user profile",
         message: error.message,
       });
     }
@@ -142,36 +152,39 @@ async function userRoutes(fastify, options) {
   // });
 
   // Create a new tweet (feed item)
-  fastify.post('/create', {
-    preHandler: jwtAuth,
-    schema:createTwiSchema
-  }, async (request, reply) => {
-    try {
-      // check if the user wants to provide an image
-      if(!request.body.attachment) {
-        
-        const response = await UserMakerCache.addTwiToUserDB(request.user.id,request.body.text,false);
-      if(response) return reply.status(201).send({ok:true,response})
-        else return reply.status(400).send({error:true})
-      } else {
+  fastify.post(
+    "/create",
+    {
+      preHandler: jwtAuth,
+      schema: createTwiSchema,
+    },
+    async (request, reply) => {
+      try {
+        // check if the user wants to provide an image
         const twiId = new ObjectId();
-        
-        fastify.log.info("twi id: " + twiId)
-        if(await Cache.user.addTwiToPendingList(twiId,request.body.text)){
-          return await signEd25519Token(request.user.id,"uploadImage",3,twiId.toString());
+        if (!request.body.attachment) {
+          const response = await TwiQueue.addTwiToQueue(request.body.text,request.user.id,false,null,null,twiId);
+          return reply.status(200).send({
+            msg:"Done"
+          }); 
         } else {
-        return reply.status(500).send({error:true})
+          const [req, token] = await Promise.all([
+            Cache.user.addTwiToPendingList(twiId, request.body.text),
+            signEd25519Token(request.user.id, "uploadImage", 5, twiId),
+          ]).catch((error) => {
+            throw new Error(error);
+          });
+          return token;
         }
-
-       }
-       } catch (error) {
-      fastify.log.error(error);
-      reply.status(500).send({
-        e: true,
-        msg: error.message || 'Failed to create feed',
-      });
-    }
-  });
+      } catch (error) {
+        fastify.log.error(error);
+        reply.status(500).send({
+          e: true,
+          msg: error.message || "Failed to create feed",
+        });
+      }
+    },
+  );
 }
 
 export default userRoutes;

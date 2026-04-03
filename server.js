@@ -12,6 +12,7 @@ import setup from "./consumer/setup.js";
 import feed from "./routes/feed.js";
 import user from "./routes/user.js";
 import { Initialize } from "./utils/edsaTokenMaker.js";
+import { connectDB, getDbStatus } from "./utils/db.js";
 
 dotenv.config();
 
@@ -20,44 +21,57 @@ const fastify = Fastify({
   trustProxy: 1
 });
 
-const db = mongoose;
+// Connect to MongoDB with better error handling
+try {
+    await connectDB();
+    console.log(`DB Status: ${getDbStatus()}`);
+} catch (error) {
+    console.error("Failed to connect to MongoDB:", error);
+    process.exit(1);
+}
 
-// Connect to MongoDB
-
-  await db.connect(process.env.DB_URL);
-  console.log("Mongodb atlas database is running");
-  await fastify.register(helmet, {
-    // Helmet options if needed
-  });
-  
-  await fastify.register(cors, {
-    origin: process.env.FRONTEND_URL,
-    credentials: true,
-  });
-  
-  await fastify.register(cookie, {
-    secret: process.env.COOKIE_SECRET, // Add a secret for cookie signing
-    hook: 'onRequest', // Parse cookies on request
-  });
-  await fastify.register(jwt, {
-    secret: process.env.JWT_SECRET, // Default secret
-  })
- // start the consumer
- await setup("uploads:stream","backend");
- startReading().catch(error => {
-  console.error("❌ Consumer crashed:", error);
-  // Optionally, you could implement a retry mechanism here
+// Register plugins
+await fastify.register(helmet);
+await fastify.register(cors, {
+  origin: process.env.FRONTEND_URL,
+  credentials: true,
 });
-  // Register plugins
+await fastify.register(cookie, {
+  secret: process.env.COOKIE_SECRET,
+  hook: 'onRequest',
+});
+await fastify.register(jwt, {
+  secret: process.env.JWT_SECRET,
+});
+
+// Start the consumer
+await setup("uploads:stream", "backend");
+startReading().catch(error => {
+  console.error("❌ Consumer crashed:", error);
+});
+
 Initialize();
+
 // Register routes
 fastify.register(api, { prefix: '/api' });
 fastify.register(auth, { prefix: '/api/auth' });
 fastify.register(user, { prefix: '/api/user' });
 
 // Health check route
-fastify.get('/health', _ => {
-  return { status: 'ok', timestamp: new Date().toISOString() };
+fastify.get('/health', async () => {
+  const dbState = mongoose.connection.readyState;
+  const dbStatus = {
+    0: 'disconnected',
+    1: 'connected',
+    2: 'connecting',
+    3: 'disconnecting'
+  };
+  
+  return { 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    mongodb: dbStatus[dbState]
+  };
 });
 
 const PORT = process.env.PORT || 3000;
@@ -65,7 +79,8 @@ const PORT = process.env.PORT || 3000;
 const start = async () => {
   try {
     await fastify.listen({ port: PORT, host: '0.0.0.0' });
-    console.log("Server running on port", PORT);
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`📊 Health check: http://localhost:${PORT}/health`);
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
