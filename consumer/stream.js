@@ -38,20 +38,31 @@ async function startReading() {
 }
 async function processMessage(id, fields) {
   try {
-    const twiId = fields[1];
-    const userId = fields[3];
-    const mediaPath = fields[5];
-    const orientation = fields[7];
+    const streamData = {};
+    for (let i = 0; i < fields.length; i += 2) {
+      streamData[fields[i]] = fields[i + 1];
+    }
+
+    const twiId = streamData.twiId || streamData.id || streamData.twi || streamData.twi_id;
+    const userId = streamData.userId || streamData.user || streamData.user_id;
+    const mediaPath = streamData.mediaPath || streamData.path || streamData.filePath || streamData.media_path;
+    const orientation = streamData.orientation || streamData.angle || streamData.orient;
     const attachment = true;
+
+    if (!twiId) {
+      throw new Error(`Missing twiId in stream message ${id}: ${JSON.stringify(fields)}`);
+    }
+    if (!userId) {
+      throw new Error(`Missing userId in stream message ${id}: ${JSON.stringify(fields)}`);
+    }
+
     const textField = await Cache.client.hgetall(`twi:${twiId}`);
-    if (!textField) throw new Error("Not found " + twiId);
+    if (!textField || !textField.text) {
+      throw new Error(`Missing text for twi:${twiId}; stream fields=${JSON.stringify(fields)}; cached=${JSON.stringify(textField)}`);
+    }
     const text = textField.text;
-  
-    await addTwiToQueue(text,userId,attachment,mediaPath,orientation,twiId);
-    // console.log(`Processing image for user ${userId}`);
-    // console.log(`Image path: ${mediaPath}`);
-    // console.log(`Orientation: ${orientation}`);
-    // await UserMakerCache.addTwiToUserDB(userId, text, true, mediaPath, orientation);
+
+    await addTwiToQueue(text, userId, attachment, mediaPath, orientation, twiId);
   } catch (error) {
     console.log(error);
     return null;

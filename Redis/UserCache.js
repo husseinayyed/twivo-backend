@@ -2,6 +2,7 @@ import BaseCache from "./BaseCache.js";
 import { User } from "../models/user.js";
 import { Twi } from "../models/twi.js";
 import { ObjectId } from "mongodb";
+import SchemaCache from "./schemas.js";
 
 class UserCache extends BaseCache {
   constructor(client, cacheService) {
@@ -270,7 +271,7 @@ class UserCache extends BaseCache {
       const cached = await this.hgetall(userKey);
       if (!cached?.username) return null;
 
-      return this._formatCachedUser(cached, token);
+      return SchemaCache.createUserCacheData(cached, token);
     } catch (error) {
       console.error("Error getting cached user:", error);
       return null;
@@ -294,10 +295,9 @@ class UserCache extends BaseCache {
       const user = await User.findById(token);
       if (!user) return null;
 
-      const userData = this._formatCachedUser(user);
-
+     
       // Cache asynchronously
-      this.cacheUserData(userData).catch(console.error);
+      this.cacheUserData(user).catch(console.error);
 
       return userData;
     } catch (error) {
@@ -311,11 +311,8 @@ class UserCache extends BaseCache {
       if (method == "email") user = await User.findOne({ email: token });
       else user = await User.findOne({ username: token });
       if (!user) return null;
-
-      const userData = this._formatCachedUser(user);
-
       // Cache asynchronously
-      this.cacheUserData(userData).catch(console.error);
+      this.cacheUserData(user).catch(console.error);
 
       return userData;
     } catch (error) {
@@ -365,7 +362,7 @@ class UserCache extends BaseCache {
       const dbUsers = await User.find({ _id: { $in: userIds } }).lean();
 
       const users = dbUsers.map((user) => ({
-        ...this._formatCachedUser(user),
+        ...SchemaCache.createUserCacheData(user),
       }));
 
       // Cache asynchronously
@@ -417,24 +414,12 @@ class UserCache extends BaseCache {
     }
   }
 
- _createTwiCacheData(twi) {
-    return {
-        id: twi._id?.toString() || "",
-        madeBy: twi.madeBy?.toString() || "",
-        text: twi.text || "",
-        likes: (twi.likes ?? 0).toString(),
-        comments: (twi.comments ?? 0).toString(),
-        attachment: (twi.attachment ?? false).toString(),
-        image: twi.image || "",
-        aspectClass: twi.aspectClass || "",
-        createdAt: twi.createdAt?.toISOString() || new Date().toISOString(),
-    };
-}
+ 
 
   async cacheUserData(user) {
     try {
       const userKey = `user:${user._id}`;
-      const userFields = this._formatCachedUser(user);
+      const userFields = SchemaCache.createUserCacheData(user,true);
       const pipeline = this.client.pipeline();
       pipeline.hset(userKey, 604800, ...Object.entries(userFields).flat());
       pipeline.set(`user:username:${user.username}`, user._id, "EX", 604800);
@@ -445,18 +430,8 @@ class UserCache extends BaseCache {
     }
   }
 
-  _formatCachedUser(user) {
-    return {
-      _id: user._id.toString(),
-      username: user.username,
-      email: user.email,
-      isVerified: user.isVerified || false,
-      image: user.image,
-      bio: user.bio,
-      refreshToken: user.refreshToken || null,
-      createdAt: user.createdAt,
-    };
-  }
+  
+
 }
 
 export default UserCache;
