@@ -1,3 +1,4 @@
+import { addTwiToQueue } from "../queue/Twi/Twi.js";
 import UserMakerCache from "../Redis/Maker/DB/UserMakerCache.js";
 import Cache from "../utils/cache.js";
 async function startReading() {
@@ -37,14 +38,16 @@ async function startReading() {
 }
 async function processMessage(id, fields) {
   try {
+    const twiId = fields[1];
     const userId = fields[3];
     const mediaPath = fields[5];
     const orientation = fields[7];
     const attachment = true;
-    const textField = await Cache.client.hgetall(`twi:${id}`);
-    if (!textField) throw new Error("Not found " + id);
+    const textField = await Cache.client.hgetall(`twi:${twiId}`);
+    if (!textField) throw new Error("Not found " + twiId);
     const text = textField.text;
-    await addTwiToQueue(text,userId,attachment,mediaPath,orientation,id);
+  
+    await addTwiToQueue(text,userId,attachment,mediaPath,orientation,twiId);
     // console.log(`Processing image for user ${userId}`);
     // console.log(`Image path: ${mediaPath}`);
     // console.log(`Orientation: ${orientation}`);

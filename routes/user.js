@@ -9,7 +9,7 @@ import signEd25519Token from "../utils/edsaTokenMaker.js";
 import UserMakerCache from "../Redis/Maker/DB/UserMakerCache.js";
 import { ObjectId } from "mongodb";
 import { createTwiSchema } from "./schemas/feedSchemas.js";
-import TwiQueue from "../queue/Twi/Twi.js";
+import { addTwiToQueue } from "../queue/Twi/Twi.js";
 // Assuming you have a rate limiter for create endpoint
 // import createLimiter from '../middleware/rateLimiter.js';
 
@@ -163,14 +163,14 @@ async function userRoutes(fastify, options) {
         // check if the user wants to provide an image
         const twiId = new ObjectId();
         if (!request.body.attachment) {
-          const response = await TwiQueue.addTwiToQueue(request.body.text,request.user.id,false,null,null,twiId);
+          const response = await addTwiToQueue(request.body.text,request.user.id,false,null,null,twiId);
           return reply.status(200).send({
             msg:"Done"
           }); 
         } else {
           const [req, token] = await Promise.all([
             Cache.user.addTwiToPendingList(twiId, request.body.text),
-            signEd25519Token(request.user.id, "uploadImage", 5, twiId),
+            signEd25519Token(request.user.id, "uploadImage", 5, twiId.toString()),
           ]).catch((error) => {
             throw new Error(error);
           });
