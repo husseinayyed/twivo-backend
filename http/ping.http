@@ -1,10 +1,10 @@
 
 ###Ping
 
-GET http://localhost:5000/api/ping
+GET http://localhost:3000/api/ping
 
 ###SIGN
-POST http://localhost:5000/api/auth/sign
+POST http://localhost:3000/api/auth/sign
 Content-Type: application/json
 
 {
@@ -15,9 +15,9 @@ Content-Type: application/json
 
 ### login
 
-POST http://localhost:5000/api/auth/login
+POST http://localhost:3000/api/auth/login
 Content-Type: application/json
 
 {
-    "magicUrl":"db00d8f7-f8c8-4366-be40-45d22db5074b"    }
+    "magicUrl":"9efa2077-2aea-44a6-84ce-a7a12ede42e5" }
     

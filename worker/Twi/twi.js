@@ -1,20 +1,14 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import { Worker } from "bullmq";
 import Cache from "../../utils/cache.js";
 import UserMakerCache from "../../Redis/Maker/DB/UserMakerCache.js";
 import { connectDB, getDbStatus } from "../../utils/db.js";
 
-// Get the Redis client and extract options
-const redisClient = Cache.blockingClient;
-const connection = {
-  host: redisClient.options.host,
-  port: redisClient.options.port,
-  password: redisClient.options.password,
-  db: redisClient.options.db,
-  family: redisClient.options.family,
-  keepAlive: redisClient.options.keepAlive,
-  noDelay: redisClient.options.noDelay,
-  maxRetriesPerRequest: null,  // Critical for BullMQ
-};
+console.log(`[Worker] Redis URL: ${process.env.REDIS_URL}`);
+console.log(`[Worker] Initializing worker with blocking client...`);
+
 try {
     await connectDB();
     console.log(`DB Status: ${getDbStatus()}`);
@@ -39,7 +33,7 @@ const worker = new Worker(
       throw error;
     }
   },
-  { connection },
+  { connection: Cache.blockingClient },
 );
 
 export default worker;

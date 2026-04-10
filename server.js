@@ -1,7 +1,9 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import mongoose from "mongoose";
-import dotenv from "dotenv";
 import cookie from "@fastify/cookie";
 import helmet from "@fastify/helmet";
 import jwt from "@fastify/jwt"
@@ -13,8 +15,6 @@ import feed from "./routes/feed.js";
 import user from "./routes/user.js";
 import { Initialize } from "./utils/edsaTokenMaker.js";
 import { connectDB, getDbStatus } from "./utils/db.js";
-
-dotenv.config();
 
 const fastify = Fastify({
   logger: true,
