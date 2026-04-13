@@ -17,9 +17,6 @@ export const signupSchema = {
       email: { type: "string" },
     },
   },
-  response: {
-    ...success,
-  },
 };
 export const loginSchema = {
   body: {
@@ -30,9 +27,6 @@ export const loginSchema = {
         type: "string",
              },
     },
-  },
-  response: {
-    ...success,
   },
 };
 export const logoutSchema = {

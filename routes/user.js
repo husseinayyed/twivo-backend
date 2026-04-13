@@ -165,7 +165,7 @@ async function userRoutes(fastify, options) {
         if (!request.body.attachment) {
           const response = await addTwiToQueue(request.body.text,request.user.id,false,null,null,twiId.toString());
          
-          return reply.status(200).send({
+          return reply.status(202).send({
             msg:"Done"
           }); 
         } else {

@@ -76,15 +76,21 @@ fastify.get('/health', async () => {
 
 const PORT = process.env.PORT || 3000;
 
+// Start server
 const start = async () => {
   try {
-    await fastify.listen({ port: PORT, host: '0.0.0.0' });
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`📊 Health check: http://localhost:${PORT}/health`);
+    await fastify.listen({ port: 3000 });
+    console.log('Server running on port 3000');
   } catch (err) {
-    fastify.log.error(err);
-    process.exit(1);
+    console.error(err);
+    if (process.env.NODE_ENV !== 'test') {
+      process.exit(1);
+    }
   }
 };
-start();
+
+// Only start if not in test environment
+if (process.env.NODE_ENV !== 'test') {
+  start();
+}
 export default start;

@@ -1,0 +1,7 @@
+{
+  "name": "twivo-backend-addons",
+  "version": "1.0.0",
+  "dependencies": [
+    "blake3"
+  ]
+}

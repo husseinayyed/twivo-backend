@@ -32,21 +32,31 @@ export default async function (fastify, options) {
     async (request, reply) => {
       try {
         const { username, email, name } = request.body;
-       const [checkUserName,checkEmail] = await Promise.all([Cache.user.get.getUserByMethod("email",email),Cache.user.get.getUserByMethod("username",username)])
-       if (checkEmail || checkUserName) {
-          return reply.status(409).send({ msg: "email/username already exists!" });
+        const [checkUserName, checkEmail] = await Promise.all([
+          Cache.user.get.getUserByMethod("email", email),
+          Cache.user.get.getUserByMethod("username", username),
+        ]);
+        if (checkEmail || checkUserName) {
+          return reply
+            .status(409)
+            .send({ msg: "email/username already exists!" });
         }
-       
+
         const magicUrl = uuid4();
-        await Cache.client.set(
-          `magicUrl:${magicUrl}`,
-          `${email}:${username}:${name}`,
-          "EX",
-          900,
-        );
+        const key = `magicUrl:${magicUrl}`;
+
+        await Cache.client
+          .pipeline()
+          .hset(key, {
+            email: email,
+            username: username,
+            name: name,
+          })
+          .expire(key, 900)
+          .exec();
         fastify.log.info(`${email}:  ${magicUrl}`);
-        return reply.status(201).send({
-          success: true,
+        return reply.status(202).send({
+          magicUrl: magicUrl,
         });
       } catch (e) {
         fastify.log.error(e);
@@ -72,29 +82,32 @@ export default async function (fastify, options) {
             msg: "Invalid or expired magic URL",
           });
         }
+        // O(1) Fetch all fields of the hash
+        const data = await Cache.client.hgetall(key);
 
-        const data = await Cache.client.get(key);
-        if (!data) {
+        // Redis hgetall returns an empty object {} if the key doesn't exist
+        if (!data || Object.keys(data).length === 0) {
           return reply.status(400).send({
             success: false,
-            msg: "Magic URL expired",
+            msg: "Magic URL expired or invalid",
           });
         }
 
-        const [email, username, name] = data.split(":");
+        // Destructure directly from the object - No splitting needed!
+        const { email, username, name } = data;
         let newUser;
         // Check if user already exists by email
-        
-        const user = await Cache.user.get.getUserByMethod("email",email)
-        
-         if (user) {
+
+        const user = await Cache.user.get.getUserByMethod("email", email);
+
+        if (user) {
           // User exists - update their refresh token and log them in
           const payload = { id: user._id.toString(), username: user.username };
           const { accessToken, refreshToken, hashToken } = await jwtMaker(
             fastify,
             payload,
           );
-          const userDB = await User.findOne({email:email})
+          const userDB = await User.findOne({ email: email });
           // Update user's refresh token
           userDB.refreshToken = hashToken;
           await userDB.save();
@@ -117,7 +130,10 @@ export default async function (fastify, options) {
           });
         } else {
           // Check if username is taken by another email
-          const existingUsername = await Cache.user.get.getUserByMethod("username",username);
+          const existingUsername = await Cache.user.get.getUserByMethod(
+            "username",
+            username,
+          );
           if (existingUsername) {
             return reply.status(400).send({
               success: false,
@@ -132,7 +148,10 @@ export default async function (fastify, options) {
             isVerified: false,
           });
 
-          const payload = { id: newUser._id.toString(), username: newUser.username };
+          const payload = {
+            id: newUser._id.toString(),
+            username: newUser.username,
+          };
           const { accessToken, refreshToken, hashToken } = await jwtMaker(
             fastify,
             payload,
@@ -160,7 +179,7 @@ export default async function (fastify, options) {
         }
         await Cache.user.set.cacheUserData(newUser);
         await Cache.client.del(key);
-        return reply.status(user == null ? 201 : 200).send({
+        return reply.status(200).send({
           success: true,
         });
       } catch (e) {
