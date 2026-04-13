@@ -16,7 +16,7 @@ import user from "./routes/user.js";
 import { Initialize } from "./utils/edsaTokenMaker.js";
 import { connectDB, getDbStatus } from "./utils/db.js";
 
-const fastify = Fastify({
+export const fastify = Fastify({
   logger: true,
   trustProxy: 1
 });
@@ -86,5 +86,5 @@ const start = async () => {
     process.exit(1);
   }
 };
-
 start();
+export default start;

@@ -14,7 +14,7 @@ class UserMakerCacheClass {
                 likes:0,
                 comments:0
             })
-            await Cache.user.addTwiToUserCache(twi);
+            await Cache.user.set.addTwiToUserCache(twi);
             return true;
         } catch (error) {
             console.log("Maker error:"+error)

@@ -1,0 +1,1553 @@
+class BaseCache {
+    constructor(client) {
+        this.client = client
+
+    }
+    async get(key) {
+    try {
+      const value = await this.client.get(key);
+      return value ? JSON.parse(value) : null;
+    } catch (error) {
+      console.error("Error getting cache:", error);
+      return null;
+    }
+  }
+
+  async set(key, value, ttl = 3600) {
+    try {
+      await this.client.set(key, JSON.stringify(value), "EX", ttl);
+    } catch (error) {
+      console.error("Error setting cache:", error);
+    }
+  }
+
+  async hset(hash, expire, ...value) {
+    try {
+      await this.client.hset(hash, ...value);
+      await this.client.expire(hash, expire);
+    } catch (error) {
+      console.error("Error setting hash cache:", error);
+    }
+  }
+
+  async hgetall(hash) {
+    try {
+      return await this.client.hgetall(hash);
+    } catch (error) {
+      console.error("Error getting hash cache:", error);
+      return null;
+    }
+  }
+
+  async exists(key) {
+    try {
+      return (await this.client.exists(key)) === 1;
+    } catch (error) {
+      console.error("Error checking cache existence:", error);
+      return false;
+    }
+  }
+
+  async del(key) {
+    try {
+      await this.client.del(key);
+    } catch (error) {
+      console.error("Error deleting cache:", error);
+    }
+  }
+
+  async sadd(key, member) {
+    try {
+      return await this.client.sadd(key, member);
+    } catch (error) {
+      console.error("Error adding to set:", error);
+      return 0;
+    }
+  }
+
+  async srem(key, member) {
+    try {
+      return await this.client.srem(key, member);
+    } catch (error) {
+      console.error("Error removing from set:", error);
+      return 0;
+    }
+  }
+
+  async sismember(key, member) {
+    try {
+      return await this.client.sismember(key, member);
+    } catch (error) {
+      console.error("Error checking set membership:", error);
+      return null;
+    }
+  }
+
+  async smembers(key) {
+    try {
+      return await this.client.smembers(key);
+    } catch (error) {
+      console.error("Error getting set members:", error);
+      return [];
+    }
+  }
+
+  async scard(key) {
+    try {
+      return await this.client.scard(key);
+    } catch (error) {
+      console.error("Error getting set count:", error);
+      return 0;
+    }
+  }
+
+  async expire(key, seconds) {
+    try {
+      return await this.client.expire(key, seconds);
+    } catch (error) {
+      console.error("Error setting expiry:", error);
+      return 0;
+    }
+  }
+
+}
+export default BaseCache;// soon...import BaseCache from "./BaseCache.js";
+import { Follow } from "../models/follow.js";
+
+class FollowCache extends BaseCache {
+    constructor(client, cacheService) {
+        super(client);
+        this.cache = cacheService;
+    }
+    async followUser(followerId, followedId) {
+        try {
+            // Basic validation
+            if (followerId === followedId) {
+                return { success: false, message: 'Cannot follow yourself' };
+            }
+            
+            // Check Redis cache first
+            const isFollowing = await this.isFollowing(followerId, followedId);
+            
+            if (isFollowing) {
+                // UNFOLLOW
+                await Follow.deleteOne({
+                    follower: followerId,
+                    following: followedId
+                });
+                
+                // Update Redis
+                const pipeline = this.client.pipeline();
+                pipeline.srem(`user:${followerId}:following`, followedId);
+                pipeline.srem(`user:${followedId}:followers`, followerId);
+                await pipeline.exec();
+                
+                return {
+                    success: true,
+                    action: 'unfollowed',
+                    message: 'Unfollowed successfully',
+                    isFollowing: false
+                };
+                
+            } else {
+                // FOLLOW - Create in MongoDB
+                const newFollow = await Follow.create({
+                    follower: followerId,
+                    following: followedId
+                });
+                
+                // Update Redis
+                const pipeline = this.client.pipeline();
+                pipeline.sadd(`user:${followerId}:following`, followedId);
+                pipeline.sadd(`user:${followedId}:followers`, followerId);
+                await pipeline.exec();
+                
+                return {
+                    success: true,
+                    action: 'followed',
+                    message: 'Followed successfully',
+                    isFollowing: true,
+                    followId: newFollow._id
+                };
+            }
+            
+        } catch (error) {
+            console.error('Error in toggleFollow:', error);
+            
+            // Handle duplicate key error (already following)
+            if (error.code === 11000 || error.message.includes('duplicate')) {
+                return { 
+                    success: false, 
+                    message: 'Already following this user' 
+                };
+            }
+            
+            return { 
+                success: false, 
+                message: 'Operation failed',
+                error: error.message 
+            };
+        }
+    }
+    
+    async isFollowing(userId, targetUserId, pipeline = null) {
+    const followingKey = `user:${userId}:following`;
+    
+    if (pipeline) {
+        // Just add the command to pipeline
+        pipeline.sismember(followingKey, targetUserId);
+        return; // Don't return anything when pipeline is used
+    }
+    
+    // Regular execution without pipeline
+    const result = await this.client.sismember(followingKey, targetUserId);
+    if (result === 1) return true;
+    
+    // Check database
+    const follow = await Follow.findOne({ 
+        follower: userId, 
+        following: targetUserId 
+    }).lean();
+    
+    if (follow) {
+        // Cache result
+        const cachePipeline = this.client.pipeline();
+        cachePipeline.sadd(followingKey, targetUserId);
+        cachePipeline.sadd(`user:${targetUserId}:followers`, userId);
+        cachePipeline.expire(followingKey, 300);
+        cachePipeline.expire(`user:${targetUserId}:followers`, 300);
+        await cachePipeline.exec();
+        return true;
+    }
+    
+    return false;
+}
+    
+   // In FollowCache.js - PROPER version with DB fallback
+async batchIsFollowing(userId, targetUserIds) {
+    const userIdStr = userId.toString();
+    
+    try {
+        const pipeline = this.client.pipeline();
+        
+        // First, check Redis for all targets
+        targetUserIds.forEach(targetId => {
+            const targetIdStr = targetId.toString();
+            pipeline.sismember(`user:${userIdStr}:following`, targetIdStr);
+        });
+        
+        const results = await pipeline.exec();
+        const finalResults = [];
+        const targetsToCheckInDB = [];
+        
+        // Process Redis results
+        results.forEach(([err, redisResult], index) => {
+            const targetUserId = targetUserIds[index];
+            
+            if (!err && redisResult === 1) {
+                // Redis says following
+                finalResults[index] = {
+                    targetUserId: targetUserId,
+                    isFollowing: true,
+                    success: true,
+                    fromCache: true
+                };
+            } else {
+                // Redis says not following OR error - need to check DB
+                targetsToCheckInDB.push({ targetUserId, index });
+                finalResults[index] = {
+                    targetUserId: targetUserId,
+                    isFollowing: false, // temporary
+                    success: false,
+                    fromCache: false
+                };
+            }
+        });
+        
+        // Check DB for uncertain targets
+        if (targetsToCheckInDB.length > 0) {
+            const targetIdsForDB = targetsToCheckInDB.map(t => t.targetUserId);
+            
+            // Get follows from MongoDB in ONE query
+            const dbFollows = await Follow.find({
+                follower: userId,
+                following: { $in: targetIdsForDB }
+            }).select('following').lean();
+            
+            // Create a set for quick lookup
+            const followingIds = new Set(
+                dbFollows.map(follow => follow.following.toString())
+            );
+            
+            // Update results and sync to Redis
+            const redisPipeline = this.client.pipeline();
+            
+            targetsToCheckInDB.forEach(({ targetUserId, index }) => {
+                const targetIdStr = targetUserId.toString();
+                const isFollowing = followingIds.has(targetIdStr);
+                
+                // Update final result
+                finalResults[index] = {
+                    targetUserId: targetUserId,
+                    isFollowing: isFollowing,
+                    success: true,
+                    fromCache: false
+                };
+                
+                // Sync to Redis
+                if (isFollowing) {
+                    redisPipeline.sadd(`user:${userIdStr}:following`, targetIdStr);
+                    redisPipeline.sadd(`user:${targetIdStr}:followers`, userIdStr);
+                    redisPipeline.expire(`user:${userIdStr}:following`, 300);
+                    redisPipeline.expire(`user:${targetIdStr}:followers`, 300);
+                }
+            });
+            
+            await redisPipeline.exec();
+        }
+        
+        return finalResults;
+        
+    } catch (error) {
+        console.error(`Error in batchIsFollowing:`, error);
+        
+        // Fallback: check DB
+        const dbFollows = await Follow.find({
+            follower: userId,
+            following: { $in: targetUserIds }
+        }).select('following').lean();
+        
+        const followingIds = new Set(
+            dbFollows.map(follow => follow.following.toString())
+        );
+        
+        return targetUserIds.map(targetUserId => ({
+            targetUserId: targetUserId,
+            isFollowing: followingIds.has(targetUserId.toString()),
+            success: true,
+            fromCache: false
+        }));
+    }
+}
+    async getFollowStats(userId) {
+    try {
+        const [following, followers] = await Promise.all([
+            this.client.scard(`user:${userId}:following`),
+            this.client.scard(`user:${userId}:followers`)
+        ]);
+        
+        return {
+            following: following || 0,
+            followers: followers || 0
+        };
+    } catch (error) {
+        console.error("Error getting follow stats:", error);
+        return { following: 0, followers: 0 };
+    }
+}
+}
+
+export default FollowCache;import BaseCache from "./BaseCache.js";
+import { Like } from "../models/like.js";
+import { Twi } from "../models/twi.js";
+class LikeCache extends BaseCache {
+    constructor(client,cacheService) {
+       super(client);
+       this.cache = cacheService;
+    }
+    async hasLiked(twiId, userId, pipeline = null) {
+    const likeKey = `twi:likes:${twiId}`;
+    try {
+        // If pipeline provided, just add command
+        if (pipeline) {
+            pipeline.sismember(likeKey, userId);
+            return;
+        }
+        // Check Redis first
+        const hasLiked = await this.sismember(likeKey, userId);
+        if (hasLiked === 1) return true;
+        
+        // Check MongoDB
+        const like = await Like.findOne({ twiId, likedBy: userId });
+        if (like) {
+            // Sync to Redis
+            await this.sadd(likeKey, userId.toString());
+            await this.expire(likeKey, 2592000);
+            return true;
+        }
+        
+        return false;
+        
+    } catch (error) {
+        console.error("Error checking like status:", error);
+        return false;
+    }
+}
+
+  async getTwiLikes(twiId) {
+    const likeKey = `twi:likes:${twiId}`;
+    try {
+      const cached = await this.smembers(likeKey);
+      if (cached.length) return cached;
+      const likes = await Like.find({ twiId }).select('likedBy');
+      const userIds = likes.map(like => like.likedBy.toString());
+      if (userIds.length) {
+        await this.sadd(likeKey, ...userIds);
+        await this.expire(likeKey, 2592000);
+      }
+      return userIds;
+    } catch (error) {
+      console.error("Error getting twi likes:", error);
+      return (await Like.find({ twiId }).select('likedBy')).map(like => like.likedBy.toString());
+    }
+  }
+
+ async getTwiLikeCount(twiId) {
+    const likeKey = `twi:likes:${twiId}`;
+    try {
+        // First check if key exists in Redis
+        const keyExists = await this.exists(likeKey);
+        
+        if (keyExists) {
+            // Key exists, get count from Redis
+            const cached = await this.scard(likeKey);
+            
+            // 🔴 FIX: Only return cached if it's > 0
+            // If cached === 0, we need to check MongoDB
+            if (cached > 0) {
+                return cached;
+            }
+            // If cached === 0 but key exists, check MongoDB
+        }
+        
+        // Key doesn't exist OR exists but is empty → check MongoDB
+        const count = await Like.countDocuments({ twiId });
+        
+        if (count > 0) {
+            // Sync from MongoDB to Redis
+            const likes = await Like.find({ twiId }).select('likedBy');
+            const userIds = likes.map(like => like.likedBy.toString());
+            
+            if (userIds.length > 0) {
+                const pipeline = this.client.pipeline();
+                // Clear first to avoid duplicates
+                pipeline.del(likeKey);
+                pipeline.sadd(likeKey, ...userIds);
+                pipeline.expire(likeKey, 2592000);
+                await pipeline.exec();
+            }
+        }
+        
+        return count;
+        
+    } catch (error) {
+        console.error("Error getting like count:", error);
+        return await Like.countDocuments({ twiId });
+    }
+}
+ async addLike(twiId, userId) {
+    console.log(`🔍 addLike called: twiId=${twiId}, userId=${userId}`);
+    
+    const likeKey = `twi:likes:${twiId}`;
+    
+    try {
+        // 1. Check Redis directly
+        console.log(`🔍 Checking Redis key: ${likeKey}`);
+        const isLiked = await this.client.sismember(likeKey, userId);
+        console.log(`🔍 Redis sismember result: ${isLiked} (0=not liked, 1=liked)`);
+        
+        // 2. Check MongoDB for comparison
+        const mongoLike = await Like.findOne({ twiId, likedBy: userId });
+        console.log(`🔍 MongoDB like exists: ${!!mongoLike}`);
+        
+        if (isLiked === 0) {
+            console.log("📥 Attempting to LIKE tweet...");
+            
+            // Add to Redis
+            const addResult = await this.client.sadd(likeKey, userId.toString());
+            console.log(`🔍 Redis SADD result: ${addResult} (1=added, 0=already exists)`);
+            
+            // Set expiration
+            await this.client.expire(likeKey, 2592000);
+            console.log("✅ Added to Redis");
+            
+            // Save to MongoDB
+            try {
+                const newLike = await Like.create({ twiId, likedBy: userId });
+                console.log(`✅ MongoDB like created: ${newLike._id}`);
+                
+                // Update tweet likes count
+                const updatedTwi = await Twi.findByIdAndUpdate(
+                    twiId,
+                    { $inc: { likes: 1 } },
+                    { new: true }
+                );
+                console.log(`✅ Tweet likes updated: ${updatedTwi?.likes}`);
+                
+            } catch (mongoError) {
+                console.error("❌ MongoDB error:", mongoError.message);
+                
+                // If MongoDB fails, rollback Redis
+                if (mongoError.code === 11000) {
+                    console.log("🔄 Duplicate key - removing from Redis");
+                    await this.client.srem(likeKey, userId.toString());
+                }
+            }
+            
+            // Invalidate cache
+            await this.client.del("feed");
+            console.log("✅ Feed cache invalidated");
+            
+            return {
+                success: true,
+                liked: true,
+                message: 'Tweet liked successfully'
+            };
+            
+        } else {
+            console.log("📤 Attempting to UNLIKE tweet...");
+            
+            // Remove from Redis
+            const removeResult = await this.client.srem(likeKey, userId.toString());
+            console.log(`🔍 Redis SREM result: ${removeResult} (1=removed, 0=wasn't there)`);
+            
+            console.log("✅ Removed from Redis");
+            
+            // Remove from MongoDB
+            try {
+                const deleteResult = await Like.deleteOne({ twiId, likedBy: userId });
+                console.log(`✅ MongoDB like deleted: ${deleteResult.deletedCount}`);
+                
+                // Update tweet likes count
+                const updatedTwi = await Twi.findByIdAndUpdate(
+                    twiId,
+                    { $inc: { likes: -1 } },
+                    { new: true }
+                );
+                console.log(`✅ Tweet likes updated: ${updatedTwi?.likes}`);
+                
+            } catch (mongoError) {
+                console.error("❌ MongoDB error:", mongoError.message);
+            }
+            
+            // Invalidate cache
+            await this.client.del("feed");
+            console.log("✅ Feed cache invalidated");
+            
+            return {
+                success: true,
+                liked: false,
+                message: 'Tweet unliked successfully'
+            };
+        }
+        
+    } catch (error) {
+        console.error("❌ CRITICAL ERROR in addLike:", error);
+        console.error("Stack:", error.stack);
+        
+        return {
+            success: false,
+            error: error.message,
+            liked: null
+        };
+    }
+}
+ // Add to LikeCache.js - PROPER version with DB fallback
+async batchGetLikeCounts(tweetIds) {
+    try {
+        const pipeline = this.client.pipeline();
+        
+        // First, check Redis for all tweets
+        tweetIds.forEach(tweetId => {
+            const likeKey = `twi:likes:${tweetId}`;
+            pipeline.scard(likeKey);
+        });
+        
+        const results = await pipeline.exec();
+        const finalResults = [];
+        const tweetsToCheckInDB = [];
+        
+        // Process Redis results
+        results.forEach(([err, redisCount], index) => {
+            const tweetId = tweetIds[index];
+            
+            if (!err && redisCount > 0) {
+                // Redis has valid count
+                finalResults[index] = {
+                    tweetId: tweetId,
+                    count: redisCount,
+                    success: true,
+                    fromCache: true
+                };
+            } else {
+                // Redis has 0 or error - need to check DB
+                tweetsToCheckInDB.push({ tweetId, index });
+                finalResults[index] = {
+                    tweetId: tweetId,
+                    count: 0, // temporary
+                    success: false,
+                    fromCache: false
+                };
+            }
+        });
+        
+        // Check DB for tweets with cache misses
+        if (tweetsToCheckInDB.length > 0) {
+            const tweetIdsForDB = tweetsToCheckInDB.map(t => t.tweetId);
+            
+            // Get counts from MongoDB in ONE query
+            const dbCounts = await Like.aggregate([
+                { $match: { twiId: { $in: tweetIdsForDB } } },
+                { $group: { _id: "$twiId", count: { $sum: 1 } } }
+            ]);
+            
+            // Create a map for quick lookup
+            const dbCountsMap = {};
+            dbCounts.forEach(item => {
+                dbCountsMap[item._id.toString()] = item.count;
+            });
+            
+            // Update results and sync to Redis
+            const redisPipeline = this.client.pipeline();
+            
+            tweetsToCheckInDB.forEach(({ tweetId, index }) => {
+                const dbCount = dbCountsMap[tweetId] || 0;
+                
+                // Update final result
+                finalResults[index] = {
+                    tweetId: tweetId,
+                    count: dbCount,
+                    success: true,
+                    fromCache: false
+                };
+                
+                // Sync to Redis if there are likes
+                if (dbCount > 0) {
+                    const likeKey = `twi:likes:${tweetId}`;
+                    // We'll sync the actual users later
+                    redisPipeline.set(`twi:likes:${tweetId}:count`, dbCount);
+                    redisPipeline.expire(`twi:likes:${tweetId}:count`, 300); // 5 min cache
+                }
+            });
+            
+            await redisPipeline.exec();
+        }
+        
+        return finalResults;
+        
+    } catch (error) {
+        console.error(`Error in batchGetLikeCounts:`, error);
+        
+        // Fallback: get all from DB
+        const dbCounts = await Like.aggregate([
+            { $match: { twiId: { $in: tweetIds } } },
+            { $group: { _id: "$twiId", count: { $sum: 1 } } }
+        ]);
+        
+        const dbCountsMap = {};
+        dbCounts.forEach(item => {
+            dbCountsMap[item._id.toString()] = item.count;
+        });
+        
+        return tweetIds.map(tweetId => ({
+            tweetId: tweetId,
+            count: dbCountsMap[tweetId] || 0,
+            success: true,
+            fromCache: false
+        }));
+    }
+}
+
+async batchHasLiked(tweetIds, userId) {
+    const userIdStr = userId.toString();
+    
+    try {
+        const pipeline = this.client.pipeline();
+        
+        // First, check Redis for all tweets
+        tweetIds.forEach(tweetId => {
+            const likeKey = `twi:likes:${tweetId}`;
+            pipeline.sismember(likeKey, userIdStr);
+        });
+        
+        const results = await pipeline.exec();
+        const finalResults = [];
+        const tweetsToCheckInDB = [];
+        
+        // Process Redis results
+        results.forEach(([err, redisResult], index) => {
+            const tweetId = tweetIds[index];
+            
+            if (!err && redisResult === 1) {
+                // Redis says liked
+                finalResults[index] = {
+                    tweetId: tweetId,
+                    hasLiked: true,
+                    success: true,
+                    fromCache: true
+                };
+            } else if (!err && redisResult === 0) {
+                // Redis says not liked (could be accurate or missing)
+                // Check if key exists to know if it's a real "not liked" or missing data
+                tweetsToCheckInDB.push({ tweetId, index });
+                finalResults[index] = {
+                    tweetId: tweetId,
+                    hasLiked: false, // temporary
+                    success: false,
+                    fromCache: false
+                };
+            } else {
+                // Redis error
+                tweetsToCheckInDB.push({ tweetId, index });
+                finalResults[index] = {
+                    tweetId: tweetId,
+                    hasLiked: false,
+                    success: false,
+                    fromCache: false
+                };
+            }
+        });
+        
+        // Check DB for uncertain tweets
+        if (tweetsToCheckInDB.length > 0) {
+            const tweetIdsForDB = tweetsToCheckInDB.map(t => t.tweetId);
+            
+            // Get likes from MongoDB in ONE query
+            const dbLikes = await Like.find({
+                twiId: { $in: tweetIdsForDB },
+                likedBy: userId
+            }).select('twiId').lean();
+            
+            // Create a set for quick lookup
+            const likedTweetIds = new Set(
+                dbLikes.map(like => like.twiId.toString())
+            );
+            
+            // Update results and sync to Redis
+            const redisPipeline = this.client.pipeline();
+            
+            tweetsToCheckInDB.forEach(({ tweetId, index }) => {
+                const hasLiked = likedTweetIds.has(tweetId);
+                
+                // Update final result
+                finalResults[index] = {
+                    tweetId: tweetId,
+                    hasLiked: hasLiked,
+                    success: true,
+                    fromCache: false
+                };
+                
+                // Sync to Redis
+                const likeKey = `twi:likes:${tweetId}`;
+                if (hasLiked) {
+                    redisPipeline.sadd(likeKey, userIdStr);
+                    redisPipeline.expire(likeKey, 2592000);
+                }
+            });
+            
+            await redisPipeline.exec();
+        }
+        
+        return finalResults;
+        
+    } catch (error) {
+        console.error(`Error in batchHasLiked:`, error);
+        
+        // Fallback: check DB individually
+        const dbLikes = await Like.find({
+            twiId: { $in: tweetIds },
+            likedBy: userId
+        }).select('twiId').lean();
+        
+        const likedTweetIds = new Set(
+            dbLikes.map(like => like.twiId.toString())
+        );
+        
+        return tweetIds.map(tweetId => ({
+            tweetId: tweetId,
+            hasLiked: likedTweetIds.has(tweetId),
+            success: true,
+            fromCache: false
+        }));
+    }
+}
+  async removeLike(twiId, userId) {
+    const likeKey = `twi:likes:${twiId}`;
+    const twiKey = `twi:${twiId}`;
+    try {
+      const like = await Like.findOne({ twiId, likedBy: userId });
+      if (!like) return false;
+      await like.deleteOne();
+      const twi = await Twi.findOne({ _id: twiId });
+      if (twi) {
+        twi.likes = Math.max(0, twi.likes - 1);
+        await twi.save();
+      }
+      await this.srem(likeKey, userId.toString());
+      let cached = await this.hgetall(twiKey);
+      if (!cached && twi) {
+   
+        const user = await User.findById(twi.author.userId);
+        await this.hset(twiKey, 300, ...this.getTwiCacheFields(twi, user));
+      } else if (cached) {
+        cached.likes = twi ? twi.likes : 0;
+        await this.hset(twiKey, 300, ...Object.entries(cached).flat());
+      }
+      
+      return true;
+    } catch (error) {
+      console.error("Error removing like:", error);
+      return false;
+    }
+  }
+}
+export default LikeCache;class SchemaClass {
+  constructor() {}
+
+  //  ### User ###
+  createUserCacheData(user, _cache = false) {
+    return {
+      _id: user._id.toString(),
+      username: user.username,
+      email: user.email,
+      isVerified: _cache
+        ? user.isVerified.toString()
+        : user.isVerified || false,
+      image: user.image,
+      bio: user.bio,
+      refreshToken: user.refreshToken || null,
+      createdAt: user.createdAt?.toISOString() || new Date().toISOString(),
+    };
+  }
+
+  // ### Twi ###
+  createTwiCacheData(twi, _cache = false) {
+    const text = twi.text?.trim() || "";
+    const likes = twi.likes ?? 0;
+    const comments = twi.comments ?? 0;
+    const attachment = twi.attachment ?? false;
+
+    return {
+      id: _cache ? twi._id?.toString() : twi._id || "",
+      madeBy: _cache ? twi.madeBy?.toString() : twi.madeBy || "",
+      text,
+      likes: _cache ? likes.toString() : likes,
+      comments: _cache ? comments.toString() : comments,
+      attachment: _cache ? attachment.toString() : attachment,
+      image: twi.image || "",
+      aspectClass: twi.aspectClass || "",
+      createdAt: (() => {
+        const d = twi.createdAt;
+
+        if (!d) return new Date().toISOString();
+
+        const date = d instanceof Date ? d : new Date(d);
+
+        if (isNaN(date.getTime())) {
+          return new Date().toISOString();
+        }
+
+        return date.toISOString();
+      })(),
+    };
+  }
+}
+const SchemaCache = new SchemaClass();
+export default SchemaCache;
+import BaseCache from "./BaseCache.js";
+import { Twi } from "../models/twi.js";
+import SchemaCache from "./schemas.js";
+
+class TwiCache extends BaseCache {
+  constructor(client, cacheService) {
+    super(client);
+    this.cache = cacheService;
+  }
+
+  // ========== PUBLIC METHODS ==========
+
+  async getContent(tweetId, userId) {
+    try {
+      const cached = await this._getCachedContent(tweetId, userId);
+      if (cached) return cached;
+
+      return await this._fetchFromDatabaseAndCache(tweetId, userId);
+    } catch (error) {
+      console.error("Error getting content:", error);
+      return null;
+    }
+  }
+
+  async getFeed(userId) {
+    const start = Date.now();
+
+    try {
+      const cachedFeedJson = await this.client.lrange("feed:generic", 0, 19);
+
+      if (cachedFeedJson?.length) {
+        const genericFeeds = cachedFeedJson
+          .map((j) => {
+            try {
+              return JSON.parse(j);
+            } catch {
+              return null;
+            }
+          })
+          .filter(Boolean);
+
+        const personalized = await this._addPersonalization(
+          genericFeeds,
+          userId,
+        );
+        console.log(`✅ CACHE HIT: ${Date.now() - start}ms`);
+        return personalized;
+      }
+
+      return await this._generateFreshFeed(userId, start);
+    } catch (error) {
+      console.error("Error getting feed:", error);
+      return await this._generateFreshFeed(userId, Date.now());
+    }
+  }
+
+  // ========== CACHE READ ==========
+
+  async _getCachedContent(tweetId, userId) {
+    const tweetData = await this.client.hgetall(`twi:${tweetId}`);
+    if (!tweetData || !tweetData.id) return null;
+
+    const [isLiked, isFollowing] = await Promise.all([
+      this.cache.like.hasLiked(tweetId, userId),
+      tweetData.madeBy
+        ? this.cache.follow.isFollowing(userId, tweetData.madeBy)
+        : false,
+    ]);
+
+    return {
+      _id: tweetData.id,
+      text: tweetData.text || "",
+      likes: parseInt(tweetData.likes) || 0,
+      comments: parseInt(tweetData.comments) || 0,
+      attachment: tweetData.attachment === "true",
+      image: tweetData.image || "",
+      aspectClass: tweetData.aspectClass || "",
+      createdAt: tweetData.createdAt,
+      authorUserId: tweetData.madeBy || "",
+      isLiked,
+      isFollowing,
+      myself: userId === tweetData.madeBy,
+    };
+  }
+
+  // ========== DB FETCH ==========
+
+  async _fetchFromDatabaseAndCache(tweetId, userId) {
+    const tweet = await Twi.findById(tweetId).lean();
+    if (!tweet) return null;
+
+    const authorId = tweet.madeBy?.toString();
+    if (!authorId) return null;
+
+    const [isLiked, isFollowing] = await Promise.all([
+      this.cache.like.hasLiked(tweetId, userId),
+      this.cache.follow.isFollowing(userId, authorId),
+    ]);
+
+    // 🔥 unified schema
+    const cacheData = SchemaCache.createTwiCacheData(
+      {
+        _id: tweet._id,
+        madeBy: authorId,
+        text: tweet.content?.text,
+        likes: tweet.likes,
+        comments: tweet.comments,
+        attachment: tweet.content?.attachment,
+        image: tweet.content?.image,
+        aspectClass: tweet.content?.aspectClass,
+        createdAt: tweet.createdAt,
+      },
+      true,
+    );
+
+    const pipeline = this.client.pipeline();
+
+    pipeline.hset(`twi:${tweetId}`, cacheData);
+    pipeline.expire(`twi:${tweetId}`, 300);
+
+    // ✅ compatible with UserCache
+    pipeline.lpush(`user:${authorId}:twis`, JSON.stringify(cacheData));
+    pipeline.ltrim(`user:${authorId}:twis`, 0, 49);
+    pipeline.expire(`user:${authorId}:twis`, 300);
+
+    await pipeline.exec();
+
+    return {
+      ...cacheData,
+      isLiked,
+      isFollowing,
+      myself: userId === authorId,
+    };
+  }
+
+  // ========== FEED GENERATION ==========
+
+  async _generateFreshFeed(userId, start) {
+    const tweets = await Twi.aggregate([
+      { $sample: { size: 20 } },
+      { $sort: { createdAt: -1 } },
+    ]);
+
+    if (!tweets.length) return [];
+    const genericTweets = tweets.map(
+      (t) =>
+        SchemaCache.createTwiCacheData(
+          {
+            _id: t._id,
+            madeBy: t.madeBy,
+            text: t.text,
+            likes: 0, // generic feed = no personalization
+            comments: 0,
+            attachment: t.attachment,
+            image: t.image,
+            aspectClass: t.aspectClass,
+            createdAt: t.createdAt,
+          },
+          true,
+        ), // ⚠️ IMPORTANT: false (not cache format)
+    );
+
+    await this.cacheGenericFeed(genericTweets);
+
+    const personalized = await this._addPersonalization(genericTweets, userId);
+
+    console.log(`✅ FRESH FEED: ${Date.now() - start}ms`);
+    return personalized;
+  }
+
+  async _addPersonalization(tweets, userId) {
+    const userIdStr = userId.toString();
+
+    const tweetIds = tweets.map((t) => t._id);
+    const authorIds = tweets.map((t) => t.author?.userId);
+
+    const uniqueAuthors = [
+      ...new Set(authorIds.filter((a) => a && a !== userIdStr)),
+    ];
+
+    try {
+      const [likes, liked, follows] = await Promise.all([
+        this.cache.like.batchGetLikeCounts(tweetIds),
+        this.cache.like.batchHasLiked(tweetIds, userId),
+        this.cache.follow.batchIsFollowing(userIdStr, uniqueAuthors),
+      ]);
+
+      const followMap = {};
+      follows.forEach((f) => {
+        if (f.success) followMap[f.targetUserId] = f.isFollowing;
+      });
+
+      return tweets.map((t, i) => ({
+        ...t,
+        likes: likes[i]?.count || 0,
+        isLiked: liked[i]?.hasLiked || false,
+        isFollowing: followMap[authorIds[i]] || false,
+        myself: userIdStr === authorIds[i],
+      }));
+    } catch (err) {
+      console.error("Personalization error:", err);
+      return tweets;
+    }
+  }
+
+  // ========== CACHE WRITE ==========
+
+  async cacheGenericFeed(tweets) {
+    const pipeline = this.client.pipeline();
+
+    tweets.forEach((tweet) => {
+      pipeline.lpush("feed:generic", JSON.stringify(tweet));
+
+      const cacheData = SchemaCache.createTwiCacheData(
+        {
+          _id: tweet._id,
+          madeBy: tweet.madeBy,
+          text: tweet.text,
+          likes: 0,
+          comments: tweet.comments,
+          attachment: tweet.attachment,
+          image: tweet.image,
+          aspectClass: tweet.aspectClass,
+          createdAt: tweet.createdAt,
+        },
+        true
+      );
+
+      pipeline.hset(`twi:${tweet._id}`, cacheData);
+      pipeline.expire(`twi:${tweet._id}`, 300);
+    });
+
+    pipeline.ltrim("feed:generic", 0, 19);
+    pipeline.expire("feed:generic", 300);
+
+    await pipeline.exec();
+  }
+
+  async addToFeedCache(twi) {
+    try {
+      const cacheData = SchemaCache.createTwiCacheData(twi, true);
+      await this.client.lpush("feed:generic", JSON.stringify(cacheData));
+    } catch (err) {
+      console.error("Error adding to feed:", err);
+    }
+  }
+
+  async clearFeedCache() {
+    try {
+      await this.client.del("feed:generic");
+    } catch (err) {
+      console.error("Error clearing feed:", err);
+    }
+  }
+}
+
+export default TwiCache;
+import BaseCache from "./BaseCache.js";
+import { User } from "../models/user.js";
+import { Twi } from "../models/twi.js";
+import { ObjectId } from "mongodb";
+import SchemaCache from "./schemas.js";
+import { createTwiSchema } from "../routes/schemas/feedSchemas.js";
+
+class UserCache extends BaseCache {
+  constructor(client, cacheService) {
+    super(client);
+    this.cache = cacheService;
+  }
+
+  // ========== PUBLIC METHODS ==========
+
+  async getUserTwis(userId, viewerId = null) {
+    const start = Date.now();
+
+    try {
+      const cachedTwis = await this._getCachedUserTwis(userId);
+      if (cachedTwis && cachedTwis.length > 0) {
+        const enrichedTwis = await this._enrichCachedTwis(
+          cachedTwis,
+          userId,
+          viewerId,
+        );
+        console.log(`✅ USER TWIS CACHE HIT: ${Date.now() - start}ms`);
+        return enrichedTwis;
+      }
+
+      return await this._fetchFreshUserTwis(userId, viewerId, start);
+    } catch (error) {
+      console.error("Error in getUserTwis:", error);
+      return await this._fetchFreshUserTwis(userId, viewerId, Date.now());
+    }
+  }
+
+  async getUser(token) {
+    try {
+      const cachedUser = await this._getCachedUser(token);
+      if (cachedUser) return cachedUser;
+
+      return await this._fetchAndCacheUser(token);
+    } catch (error) {
+      console.error("Error getting user from cache:", error);
+      return null;
+    }
+  }
+  async getUserByMethod(method, token) {
+    try {
+      const id = await this._getCachedUserByMethod(method, token);
+      let cachedUser;
+      if (id) cachedUser = await this._getCachedUser(id);
+      if (cachedUser) return cachedUser;
+      return await this._fetchAndCacheUserByMethod(method, token);
+    } catch (error) {
+      console.error("Error getting user from cache:", error);
+      return null;
+    }
+  }
+
+  async getUsers(userIds) {
+    if (!Array.isArray(userIds) || userIds.length === 0) return [];
+
+    try {
+      return await this._batchGetUsers(userIds);
+    } catch (error) {
+      console.error("Error in getUsers:", error);
+      return await this._fetchUsersFromDB(userIds);
+    }
+  }
+
+  // ========== USER TWIS METHODS ==========
+  async addTwiToPendingList(twiId,text) {
+    try {
+      
+      const twi = {
+        _id: twiId.toString(),
+        text: text,
+        createdAt:new Date()
+      };
+      return this.addTwiToUserCache(twi);
+    } catch (error) {
+      return new Error()
+    }
+  }
+  async addTwiToUserCache(twi,age = 86400) {
+  try {
+    const tweetId = twi._id;
+    if (!tweetId) return;
+    const pipeline = this.client.pipeline();
+    pipeline.hset(`twi:${tweetId}`, SchemaCache.createTwiCacheData(twi,true));
+    pipeline.expire(`twi:${tweetId}`, age); // 24 hours
+    await pipeline.exec();
+    return true;
+  } catch (error) {
+    console.error("Error adding twi to cache:", error);
+    return null;
+  }
+  }
+  async _getCachedUserTwis(userId) {
+    const twisKey = `user:${userId}:twis`;
+    try {
+      const cachedTwis = await this.client.lrange(twisKey, 0, 49);
+
+      if (!cachedTwis || cachedTwis.length === 0) {
+        return null;
+      }
+
+      return cachedTwis
+        .map((json) => {
+          try {
+            return JSON.parse(json);
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean);
+    } catch (error) {
+      console.error("Error getting cached user twis:", error);
+      return null;
+    }
+  }
+
+  async _enrichCachedTwis(twis, userId, viewerId) {
+    if (!twis.length) return [];
+
+    const tweetIds = twis.map((t) => t._id || t.twiId);
+    const isSameUser = viewerId === userId;
+
+    try {
+      // BATCH ALL OPERATIONS - PARALLEL
+      const [likeCounts, likedStatuses, followStatus] = await Promise.all([
+        // 1. Batch like counts
+        this.cache.like.batchGetLikeCounts(tweetIds),
+
+        // 2. Batch liked status (only if viewer exists)
+        viewerId
+          ? this.cache.like.batchHasLiked(tweetIds, viewerId)
+          : Promise.resolve(tweetIds.map(() => false)),
+
+        // 3. Get follow status (only if different users)
+        !isSameUser && viewerId
+          ? this._getBatchFollowStatus(viewerId, userId)
+          : Promise.resolve([false, false]),
+      ]);
+
+      // Apply results
+      return twis.map((twi, index) => ({
+        ...twi,
+        likes: likeCounts[index]?.count || 0,
+        isLiked: likedStatuses[index]?.hasLiked || false,
+        isFollowing: !isSameUser ? followStatus[0] : false,
+        followsYou: !isSameUser ? followStatus[1] : false,
+        myself: isSameUser,
+      }));
+    } catch (error) {
+      console.error("Error enriching cached twis:", error);
+
+      // Fallback: minimal data
+      return twis.map((twi) => ({
+        ...twi,
+        likes: 0,
+        isLiked: false,
+        isFollowing: false,
+        followsYou: false,
+        myself: isSameUser,
+      }));
+    }
+  }
+
+  async _fetchFreshUserTwis(userId, viewerId, startTime) {
+    try {
+      // Fetch from database
+      const twis = await Twi.find({ "author.userId": userId })
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .lean();
+
+      if (!twis.length) return [];
+
+      // Extract tweet IDs
+      const tweetIds = twis.map((t) => t._id.toString());
+      const isSameUser = viewerId === userId;
+
+      // BATCH ALL METADATA - PARALLEL
+      const [likeCounts, likedStatuses, followStatus] = await Promise.all([
+        // 1. Batch like counts
+        this.cache.like.batchGetLikeCounts(tweetIds),
+
+        // 2. Batch liked status
+        viewerId
+          ? this.cache.like.batchHasLiked(tweetIds, viewerId)
+          : Promise.resolve(tweetIds.map(() => false)),
+
+        // 3. Get follow status
+        !isSameUser && viewerId
+          ? this._getBatchFollowStatus(viewerId, userId)
+          : Promise.resolve([false, false]),
+      ]);
+
+      // Format tweets
+      const finalTwis = twis.map((twi, index) => {
+        const content = twi.content || {};
+
+        return {
+          _id: twi._id.toString(),
+          twiId: twi._id.toString(),
+          content: content,
+          author: twi.author || {},
+          comments: twi.comments || 0,
+          createdAt: twi.createdAt,
+          likes: likeCounts[index]?.count || 0,
+          isLiked: likedStatuses[index]?.hasLiked || false,
+          isFollowing: !isSameUser ? followStatus[0] : false,
+          followsYou: !isSameUser ? followStatus[1] : false,
+          myself: isSameUser,
+        };
+      });
+
+      // Cache results (async, don't wait)
+      this._cacheUserTwis(userId, finalTwis).catch(console.error);
+
+      console.log(`✅ USER TWIS FRESH FETCH: ${Date.now() - startTime}ms`);
+      return finalTwis;
+    } catch (error) {
+      console.error("Error fetching fresh user twis:", error);
+      return [];
+    }
+  }
+
+  async _cacheUserTwis(userId, twis) {
+    if (!twis.length) return;
+
+    const twisKey = `user:${userId}:twis`;
+
+    try {
+      const pipeline = this.client.pipeline();
+
+      // Clear existing list
+      pipeline.del(twisKey);
+
+      // Add tweets
+      for (const twi of twis) {
+        pipeline.rpush(twisKey, JSON.stringify(twi));
+
+        // Cache individual tweet
+        const tweetId = twi._id;
+        if (tweetId) {
+          pipeline.hset(`twi:${tweetId}`, this._createTwiCacheData(twi));
+          pipeline.expire(`twi:${tweetId}`, 300);
+        }
+      }
+
+      // Set list limits and expiry
+      pipeline.ltrim(twisKey, 0, 49);
+      pipeline.expire(twisKey, 300);
+
+      await pipeline.exec();
+    } catch (error) {
+      console.error("Error caching user twis:", error);
+    }
+  }
+
+  // ========== USER METHODS ==========
+
+  async _getCachedUser(token) {
+    const userKey = `user:${token}`;
+
+    try {
+      const exists = await this.exists(userKey);
+      if (!exists) return null;
+
+      const cached = await this.hgetall(userKey);
+      if (!cached?.username) return null;
+
+      return SchemaCache.createUserCacheData(cached, token);
+    } catch (error) {
+      console.error("Error getting cached user:", error);
+      return null;
+    }
+  }
+  async _getCachedUserByMethod(method = "email", token) {
+    const userKey =
+      method == "email" ? `user:email:${token}` : `user:username:${token}`;
+    try {
+      const exists = await this.exists(userKey);
+      if (!exists) return null;
+      const cached = await this.client.get(userKey);
+      return cached;
+    } catch (error) {
+      console.error("Error getting cached user:", error);
+      return null;
+    }
+  }
+  async _fetchAndCacheUser(token) {
+    try {
+      const user = await User.findById(token);
+      if (!user) return null;
+
+     
+      // Cache asynchronously
+      this.cacheUserData(user).catch(console.error);
+
+      return user;
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      return null;
+    }
+  }
+  async _fetchAndCacheUserByMethod(method = "email", token) {
+    try {
+      let user;
+      if (method == "email") user = await User.findOne({ email: token });
+      else user = await User.findOne({ username: token });
+      if (!user) return null;
+      // Cache asynchronously
+      this.cacheUserData(user).catch(console.error);
+
+      return userData;
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      return null;
+    }
+  }
+
+  async _batchGetUsers(userIds) {
+    try {
+      // Try Redis first with pipeline
+      const pipeline = this.client.pipeline();
+      userIds.forEach((id) => pipeline.get(`user:${id}`));
+      const results = await pipeline.exec();
+
+      const users = [];
+      const missingIds = [];
+
+      for (let i = 0; i < results.length; i++) {
+        const [err, cached] = results[i];
+        if (!err && cached) {
+          try {
+            users.push(JSON.parse(cached));
+          } catch {
+            missingIds.push(userIds[i]);
+          }
+        } else {
+          missingIds.push(userIds[i]);
+        }
+      }
+
+      // Fetch missing users
+      if (missingIds.length > 0) {
+        const dbUsers = await this._fetchUsersFromDB(missingIds);
+        users.push(...dbUsers);
+      }
+
+      return users;
+    } catch (error) {
+      console.error("Error in batchGetUsers:", error);
+      throw error;
+    }
+  }
+
+  async _fetchUsersFromDB(userIds) {
+    try {
+      const dbUsers = await User.find({ _id: { $in: userIds } }).lean();
+
+      const users = dbUsers.map((user) => ({
+        ...SchemaCache.createUserCacheData(user),
+      }));
+
+      // Cache asynchronously
+      if (users.length > 0) {
+        const cachePipeline = this.client.pipeline();
+        users.forEach((user) => {
+          cachePipeline.setex(`user:${user._id}`, 604800, JSON.stringify(user));
+        });
+        cachePipeline.exec().catch(console.error);
+      }
+
+      return users;
+    } catch (error) {
+      console.error("Error fetching users from DB:", error);
+      return [];
+    }
+  }
+
+  // ========== HELPER METHODS ==========
+
+  async _getBatchFollowStatus(viewerId, userId) {
+    if (!viewerId || viewerId === userId) {
+      return [false, false];
+    }
+
+    try {
+      // Use batch method if available, otherwise individual
+      if (this.cache.follow.batchIsFollowing) {
+        const results = await Promise.all([
+          this.cache.follow.batchIsFollowing(viewerId, [userId]),
+          this.cache.follow.batchIsFollowing(userId, [viewerId]),
+        ]);
+
+        return [
+          results[0][0]?.isFollowing || false,
+          results[1][0]?.isFollowing || false,
+        ];
+      } else {
+        // Fallback to individual calls
+        const [isFollowing, followsYou] = await Promise.all([
+          this.cache.follow.isFollowing(viewerId, userId),
+          this.cache.follow.isFollowing(userId, viewerId),
+        ]);
+        return [isFollowing, followsYou];
+      }
+    } catch (error) {
+      console.error("Error getting batch follow status:", error);
+      return [false, false];
+    }
+  }
+
+ 
+
+  async cacheUserData(user) {
+    try {
+      const userKey = `user:${user._id}`;
+      const userFields = SchemaCache.createUserCacheData(user,true);
+      const pipeline = this.client.pipeline();
+      pipeline.hset(userKey, 604800, ...Object.entries(userFields).flat());
+      pipeline.set(`user:username:${user.username}`, user._id, "EX", 604800);
+      pipeline.set(`user:email:${user.email}`, user._id, "EX", 604800);
+      await pipeline.exec();
+    } catch (error) {
+      console.error("Error caching user data:", error);
+    }
+  }
+
+  
+
+}
+
+export default UserCache;

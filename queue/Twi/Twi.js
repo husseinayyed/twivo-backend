@@ -1,12 +1,13 @@
 import { Queue } from "bullmq";
 import Cache from "../../utils/cache.js";
 
-const myQueue = new Queue("twi-maker", {
-  connection: Cache.blockingClient
+const TwiQueue = new Queue("twi-maker", {
+  connection: Cache.queueConnection
 });
 
 export async function addTwiToQueue(text, userId, attachment, mediaPath, orientation, twiId) {
-  await myQueue.add("twi-maker", {
+ console.log(twiId,text)
+ return await TwiQueue.add("twi-maker", {
     text,
     userId,
     attachment,

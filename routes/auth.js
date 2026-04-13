@@ -32,7 +32,7 @@ export default async function (fastify, options) {
     async (request, reply) => {
       try {
         const { username, email, name } = request.body;
-       const [checkUserName,checkEmail] = await Promise.all([Cache.user.getUserByMethod("email",email),Cache.user.getUserByMethod("username",username)])
+       const [checkUserName,checkEmail] = await Promise.all([Cache.user.get.getUserByMethod("email",email),Cache.user.get.getUserByMethod("username",username)])
        if (checkEmail || checkUserName) {
           return reply.status(409).send({ msg: "email/username already exists!" });
         }
@@ -85,7 +85,7 @@ export default async function (fastify, options) {
         let newUser;
         // Check if user already exists by email
         
-        const user = await Cache.user.getUserByMethod("email",email)
+        const user = await Cache.user.get.getUserByMethod("email",email)
         
          if (user) {
           // User exists - update their refresh token and log them in
@@ -117,7 +117,7 @@ export default async function (fastify, options) {
           });
         } else {
           // Check if username is taken by another email
-          const existingUsername = await Cache.user.getUserByMethod("username",username);
+          const existingUsername = await Cache.user.get.getUserByMethod("username",username);
           if (existingUsername) {
             return reply.status(400).send({
               success: false,
@@ -158,7 +158,7 @@ export default async function (fastify, options) {
             path: "/",
           });
         }
-        await Cache.user.cacheUserData(newUser);
+        await Cache.user.set.cacheUserData(newUser);
         await Cache.client.del(key);
         return reply.status(user == null ? 201 : 200).send({
           success: true,

@@ -1,6 +1,6 @@
 import Redis from "ioredis";
-import UserCache from "../Redis/UserCache.js";
-import TwiCache from "../Redis/TwiCache.js";
+import UserCache from "../Redis/UserCache/index.js";
+import TwiCache from "../Redis/TwiCache/index.js";
 import LikeCache from "../Redis/LikeCache.js";
 import FollowCache from "../Redis/FollowCache.js";
 
@@ -25,6 +25,9 @@ class CacheService {
       enableReadyCheck: false,
       enableOfflineQueue: true, // Needed for stream operations
     });
+    this.queueConnection = new Redis(redisUrl,{
+      maxRetriesPerRequest: null
+    }); 
     this.client.on("error", (err) => console.error("Redis error:", err));
     this.client.on("connect", () => console.log("✅ Connected to Redis server"));
     this.user = new UserCache(this.client, this);

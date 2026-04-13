@@ -33,7 +33,7 @@ const worker = new Worker(
       throw error;
     }
   },
-  { connection: Cache.blockingClient },
+  { connection: Cache.queueConnection },
 );
 
 export default worker;

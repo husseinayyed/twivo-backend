@@ -28,6 +28,8 @@ services:
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASS}
       - MONGO_INITDB_DATABASE=${MONGO_DB}
     command: ["mongod", "--quiet", "--wiredTigerCacheSizeGB", "0.265"]
+    ports:
+    - "27017:27017"
     deploy:
       resources:
         limits:

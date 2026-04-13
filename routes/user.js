@@ -59,7 +59,7 @@ async function userRoutes(fastify, options) {
     try {
       const userId = request.user.id;
 
-      const userData = await Cache.user.getUser(userId);
+      const userData = await Cache.user.get.getUser(userId);
       if (!userData) {
         return reply.status(404).send({ error: "User not found" });
       }
@@ -96,14 +96,14 @@ async function userRoutes(fastify, options) {
       const userId = request.params.id;
       const viewerId = request.user.id;
 
-      const userProfile = await Cache.user.getUser(userId);
+      const userProfile = await Cache.user.get.getUser(userId);
       if (!userProfile) {
         return reply.status(404).send({ error: "User not found" });
       }
 
       fastify.log.info(userProfile);
 
-      const userTwis = await Cache.user.getUserTwis(userId, viewerId);
+      const userTwis = await Cache.user.get.getUserTwis(userId, viewerId);
       const followStats = (await Cache.follow.getFollowStats(userId)) || {
         followers: 0,
         following: 0,
@@ -163,18 +163,19 @@ async function userRoutes(fastify, options) {
         // check if the user wants to provide an image
         const twiId = new ObjectId();
         if (!request.body.attachment) {
-          const response = await addTwiToQueue(request.body.text,request.user.id,false,null,null,twiId);
+          const response = await addTwiToQueue(request.body.text,request.user.id,false,null,null,twiId.toString());
+         
           return reply.status(200).send({
             msg:"Done"
           }); 
         } else {
           const [req, token] = await Promise.all([
-            Cache.user.addTwiToPendingList(twiId, request.body.text),
+            Cache.user.set.addTwiToPendingList(twiId, request.body.text),
             signEd25519Token(request.user.id, "uploadImage", 5, twiId.toString()),
           ]).catch((error) => {
             throw new Error(error);
           });
-          return token;
+          return reply.status(202).send({magicUrl:token});
         }
       } catch (error) {
         fastify.log.error(error);
@@ -185,6 +186,7 @@ async function userRoutes(fastify, options) {
       }
     },
   );
+
 }
 
 export default userRoutes;

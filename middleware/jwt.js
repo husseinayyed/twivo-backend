@@ -39,7 +39,7 @@ const jwtAuth = async (request, reply) => {
     }
 
     // Get user
-    const user = await Cache.user.getUser(refreshDecoded.id);
+    const user = await Cache.user.get.getUser(refreshDecoded.id);
     if (!user) {
       return reply.status(401).send({ 
         error: true, 

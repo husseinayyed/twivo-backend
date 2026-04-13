@@ -8,9 +8,9 @@ POST http://localhost:3000/api/auth/sign
 Content-Type: application/json
 
 {
-    "name":"nisssnif",
-    "email":"niccdsscf@gmail.com",
-    "username":"ccdccnis"
+    "name":"ddvdvd",
+    "email":"niccssd@gmail.com",
+    "username":"ccdcnis"
 }
 
 ### login
@@ -19,5 +19,5 @@ POST http://localhost:3000/api/auth/login
 Content-Type: application/json
 
 {
-    "magicUrl":"9efa2077-2aea-44a6-84ce-a7a12ede42e5" }
+    "magicUrl":"cf971d00-afed-4d3b-9f48-2c910f5920ae" }
     

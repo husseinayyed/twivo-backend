@@ -6,8 +6,7 @@ import { fileURLToPath } from "url";
 // Get the correct path to .env from project root
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.resolve(__dirname, "../../.env") });
-
+dotenv.config({ path: path.resolve(__dirname, ".env") });
 let isConnected = false;
 
 export const connectDB = async () => {
@@ -19,7 +18,6 @@ export const connectDB = async () => {
     if (isConnected && mongoose.connection.readyState === 1) {
         return true;
     }
-    
     try {
         await mongoose.connect(process.env.DB_URL, {
             connectTimeoutMS: 30000,
