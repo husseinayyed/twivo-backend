@@ -33,7 +33,7 @@ const sign = new db.Schema({
     default: null
   },
   refreshToken: {
-    type: String,
+    type: Buffer,
     required: false,
   }},
   {
