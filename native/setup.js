@@ -21,5 +21,5 @@ export function blake3_hash(data) {
     resultPtr
   );
 
-  return resultBuffer;
+  return Buffer.from(resultBuffer).toString("base64");
 }

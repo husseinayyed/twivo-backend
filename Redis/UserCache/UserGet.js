@@ -1,5 +1,6 @@
 import SchemaCache from "../schemas.js";
 import { User } from "../../models/user.js";
+import { Twi } from "../../models/twi.js";
 class UserGet {
   constructor(client, cacheService) {
     this.client = client;
@@ -58,7 +59,57 @@ class UserGet {
       return null;
     }
   }
-
+  // In UserGet.js - Add this method
+async getUserProfileWithStats(userId, viewerId) {
+  const isSameUser = viewerId === userId;
+  
+  // Use single pipeline for all Redis operations
+  const pipeline = this.client.pipeline();
+  
+  // Get user profile
+  pipeline.hgetall(`user:${userId}`);
+  
+  // Get follow stats
+  pipeline.scard(`user:${userId}:following`);
+  pipeline.scard(`user:${userId}:followers`);
+  
+  // Get follow relationships
+  if (!isSameUser) {
+    pipeline.sismember(`user:${viewerId}:following`, userId);
+    pipeline.sismember(`user:${userId}:following`, viewerId);
+  }
+  
+  const results = await pipeline.exec();
+  let idx = 0;
+  
+  // Parse user profile
+  const userProfileRaw = results[idx++]?.[1];
+  if (!userProfileRaw || Object.keys(userProfileRaw).length === 0) {
+    return null;
+  }
+  
+  const userProfile = SchemaCache.createUserCacheData(userProfileRaw, userId);
+  const followingCount = results[idx++]?.[1] || 0;
+  const followersCount = results[idx++]?.[1] || 0;
+  
+  let isFollowing = false;
+  let followsYou = false;
+  
+  if (!isSameUser) {
+    isFollowing = results[idx++]?.[1] === 1;
+    followsYou = results[idx++]?.[1] === 1;
+  }
+  return {
+    profile: {
+      ...SchemaCache.getPublicUserData(userProfileRaw),
+      myself: isSameUser,
+      isFollowing,
+      followsYou,
+      followersCount,
+      followingCount,
+    }
+  };
+}
   async getUsers(userIds) {
     if (!Array.isArray(userIds) || userIds.length === 0) return [];
 
@@ -71,6 +122,58 @@ class UserGet {
   }
 
   // ========== INTERNAL GETTERS ==========
+
+async _fetchFreshUserTwis(userId, viewerId, startTime) {
+    try {
+      // Fetch from database
+      const twis = await Twi.find({ madeBy: userId })
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .lean();
+
+      if (!twis.length) return [];
+
+      // Extract tweet IDs
+      const tweetIds = twis.map((t) => t._id.toString());
+      const isSameUser = viewerId === userId;
+
+      // BATCH ALL METADATA - PARALLEL
+      const [likeCounts, likedStatuses, followStatus] = await Promise.all([
+        // 1. Batch like counts
+        this.cache.like.batchGetLikeCounts(tweetIds),
+
+        // 2. Batch liked status
+        viewerId
+          ? this.cache.like.batchHasLiked(tweetIds, viewerId)
+          : Promise.resolve(tweetIds.map(() => false)),
+
+        // 3. Get follow status
+        !isSameUser && viewerId
+          ? this.cache.follow.get.getBatchFollowStatus(viewerId, userId)
+          : Promise.resolve([false, false]),
+      ]);
+
+      // Format tweets
+      
+      const finalTwis = twis.map((twi, index) => {
+       
+        return {
+          ...SchemaCache.createTwiCacheData(twi),
+          isLiked: likedStatuses[index]?.hasLiked || false,
+          isFollowing: !isSameUser ? followStatus[0] : false,
+          followsYou: !isSameUser ? followStatus[1] : false,
+          myself: isSameUser,
+        };
+      });
+
+      // Cache results (async, don't wait)
+      console.log(`✅ USER TWIS FRESH FETCH: ${Date.now() - startTime}ms`);
+      return finalTwis;
+    } catch (error) {
+      console.error("Error fetching fresh user twis:", error);
+      return [];
+    }
+  }
 
   async _getCachedUserTwis(userId) {
     const key = `user:${userId}:twis`;

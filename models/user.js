@@ -1,5 +1,4 @@
 import mongoose from "mongoose"
-import bcrypt from "bcrypt"
 const db = mongoose
 const sign = new db.Schema({
   name: {
@@ -33,7 +32,7 @@ const sign = new db.Schema({
     default: null
   },
   refreshToken: {
-    type: Buffer,
+    type: String,
     required: false,
   }},
   {

@@ -10,51 +10,48 @@ import UserMakerCache from "../Redis/Maker/DB/UserMakerCache.js";
 import { ObjectId } from "mongodb";
 import { createTwiSchema } from "./schemas/feedSchemas.js";
 import { addTwiToQueue } from "../queue/Twi/Twi.js";
+import SchemaCache from "../Redis/schemas.js";
+import { followSchema } from "./schemas/userSchema.js";
 // Assuming you have a rate limiter for create endpoint
 // import createLimiter from '../middleware/rateLimiter.js';
 
 async function userRoutes(fastify, options) {
   // ========== ROUTES ==========
 
-  // Ping
-  fastify.get("/ping", async (request, reply) => {
-    reply.status(200).send();
-  });
-
   // Follow/unfollow a user
-  fastify.post("/follow", async (request, reply) => {
-    const { targetUserId } = request.body;
-    if (!targetUserId) {
-      return reply
-        .status(400)
-        .send({ e: true, msg: "targetUserId is required" });
-    }
-    if (targetUserId === request.user.id) {
-      return reply
-        .status(400)
-        .send({ e: true, msg: "You cannot follow yourself" });
-    }
+  fastify.post(
+    "/follow",
+    { preHandler: jwtAuth, schema: followSchema },
+    async (request, reply) => {
+      const { targetUserId } = request.body;
 
-    try {
-      const result = await Cache.follow.followUser(
-        request.user.id,
-        targetUserId,
-      );
-      if (result) {
+      if (targetUserId === request.user.id) {
         return reply
-          .status(200)
-          .send({ e: false, msg: "Follow status toggled" });
-      } else {
-        return reply.status(500).send({ e: true, msg: "An error occurred" });
+          .status(400)
+          .send({ e: true, msg: "You cannot follow yourself" });
       }
-    } catch (error) {
-      fastify.log.error(error);
-      reply.status(500).send({ e: true, msg: "An error occurred" });
-    }
-  });
+
+      try {
+        const result = await Cache.follow.set.followUser(
+          request.user.id,
+          targetUserId,
+        );
+        if (result) {
+          return reply
+            .status(200)
+            .send({ e: false, msg: "Follow status toggled" });
+        } else {
+          return reply.status(500).send({ e: true, msg: "An error occurred" });
+        }
+      } catch (error) {
+        fastify.log.error(error);
+        reply.status(500).send({ e: true, msg: "An error occurred" });
+      }
+    },
+  );
 
   // Get current user's profile
-  fastify.get("/profile", async (request, reply) => {
+  fastify.get("/profile", { preHandler: jwtAuth }, async (request, reply) => {
     const start = Date.now();
     try {
       const userId = request.user.id;
@@ -66,8 +63,8 @@ async function userRoutes(fastify, options) {
 
       const { username, bio, image, createdAt } = userData;
 
-      const userTwis = await Cache.user.getUserTwis(userId, userId);
-      const followStats = await Cache.follow.getFollowStats(userId);
+      const userTwis = await Cache.user.get.getUserTwis(userId, userId);
+      const followStats = await Cache.follow.get.getFollowStats(userId);
 
       fastify.log.info(`✅ Profile loaded in ${Date.now() - start}ms`);
 
@@ -91,60 +88,35 @@ async function userRoutes(fastify, options) {
   });
 
   // Get another user's profile by ID
-  fastify.get("/:id", async (request, reply) => {
-    try {
-      const userId = request.params.id;
-      const viewerId = request.user.id;
+ fastify.get(
+    "/:id",
+    {
+      preHandler: jwtAuth,
+    },
+    async (request, reply) => {
+      try {
+        const userId = request.params.id;
+        const viewerId = request.user.id;
 
-      const userProfile = await Cache.user.get.getUser(userId);
-      if (!userProfile) {
-        return reply.status(404).send({ error: "User not found" });
+        const result = await Cache.user.get.getUserProfileWithStats(userId, viewerId);
+        
+        if (!result) {
+          return reply.status(404).send({ error: "User not found" });
+        }
+
+        reply.status(200).send({
+          success: true,
+          ...result,
+        });
+      } catch (error) {
+        fastify.log.error(error);
+        reply.status(500).send({
+          error: "Failed to load user profile",
+          message: error.message,
+        });
       }
-
-      fastify.log.info(userProfile);
-
-      const userTwis = await Cache.user.get.getUserTwis(userId, viewerId);
-      const followStats = (await Cache.follow.getFollowStats(userId)) || {
-        followers: 0,
-        following: 0,
-      };
-
-      let isFollowing = false;
-      let followsYou = false;
-
-      if (viewerId !== userId) {
-        isFollowing = await Cache.follow.isFollowing(viewerId, userId);
-        followsYou = await Cache.follow.isFollowing(userId, viewerId);
-      }
-
-      const response = {
-        success: true,
-        profile: {
-          _id: userProfile._id,
-          userId: userProfile._id,
-          username: userProfile.username,
-          bio: userProfile.bio || "",
-          image: userProfile.image || "",
-          createdAt: userProfile.createdAt,
-          isVerified: userProfile.isVerified || false,
-          myself: viewerId === userId,
-          isFollowing,
-          followsYou,
-          followersCount: followStats.followers,
-          followingCount: followStats.following,
-        },
-        twis: userTwis,
-      };
-
-      reply.status(200).send(response);
-    } catch (error) {
-      fastify.log.error(error);
-      reply.status(500).send({
-        error: "Failed to load user profile",
-        message: error.message,
-      });
-    }
-  });
+    },
+);
 
   // Upload profile image
   // fastify.post('/profile/image', async (request, reply) => {
@@ -163,19 +135,31 @@ async function userRoutes(fastify, options) {
         // check if the user wants to provide an image
         const twiId = new ObjectId();
         if (!request.body.attachment) {
-          const response = await addTwiToQueue(request.body.text,request.user.id,false,null,null,twiId.toString());
-         
+          const response = await addTwiToQueue(
+            request.body.text,
+            request.user.id,
+            false,
+            null,
+            null,
+            twiId.toString(),
+          );
+
           return reply.status(202).send({
-            msg:"Done"
-          }); 
+            msg: "Done",
+          });
         } else {
           const [req, token] = await Promise.all([
             Cache.user.set.addTwiToPendingList(twiId, request.body.text),
-            signEd25519Token(request.user.id, "uploadImage", 5, twiId.toString()),
+            signEd25519Token(
+              request.user.id,
+              "uploadImage",
+              5,
+              twiId.toString(),
+            ),
           ]).catch((error) => {
             throw new Error(error);
           });
-          return reply.status(202).send({magicUrl:token});
+          return reply.status(202).send({ magicUrl: token });
         }
       } catch (error) {
         fastify.log.error(error);
@@ -186,7 +170,6 @@ async function userRoutes(fastify, options) {
       }
     },
   );
-
 }
 
 export default userRoutes;

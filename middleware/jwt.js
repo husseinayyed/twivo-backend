@@ -1,13 +1,13 @@
 // middleware/jwt.js
 import { jwtMaker } from "../utils/jwt.js";
-import bcrypt from "bcrypt";
+import crypto from "crypto";
 import Cache from "../utils/cache.js";
+import { blake3_hash } from "../native/setup.js";
 const jwtAuth = async (request, reply) => {
   try {
     // Get tokens from cookies
     const accessToken = request.cookies.accessToken;
     const refreshToken = request.cookies.refreshToken;
-
     // First try access token
     if (accessToken) {
       try {
@@ -21,9 +21,9 @@ const jwtAuth = async (request, reply) => {
 
     // Try refresh token
     if (!refreshToken) {
-      return reply.status(401).send({ 
-        error: true, 
-        msg: "Access token is missing or invalid." 
+      return reply.status(401).send({
+        error: true,
+        msg: "Access token is missing or invalid.",
       });
     }
 
@@ -32,50 +32,67 @@ const jwtAuth = async (request, reply) => {
     try {
       refreshDecoded = await reply.server.jwt.verify(refreshToken);
     } catch (err) {
-      return reply.status(401).send({ 
-        error: true, 
-        msg: "Session expired. Please login again." 
+      return reply.status(401).send({
+        e: err,
+        error: true,
+        msg: "Session expired. Please login again.",
       });
     }
 
     // Get user
     const user = await Cache.user.get.getUser(refreshDecoded.id);
     if (!user) {
-      return reply.status(401).send({ 
-        error: true, 
-        msg: "User not found." 
+      return reply.status(401).send({
+        error: true,
+        msg: "User not found.",
       });
     }
 
     // Verify refresh token matches stored hash
-    const isTokenValid = await bcrypt.compare(refreshToken, user.refreshToken);
-    if (!isTokenValid) {
-      return reply.status(401).send({ 
-        error: true, 
-        msg: "Invalid refresh token." 
+    // Store refresh token hash in database (not the raw token)
+    // When storing user.refreshToken, store the BLAKE3 hash
+
+    // Then for comparison:
+   // Verify refresh token matches stored hash
+const receivedHash = blake3_hash(refreshToken);
+const storedHash = (user.refreshToken);
+    // Ensure both are buffers of same length
+    if (receivedHash.length !== storedHash.length) {
+      return reply.status(401).send({
+        error: true,
+        msg: "Invalid refresh token format.",
+      });
+    }
+
+    if (receivedHash !== storedHash) {
+      return reply.status(401).send({
+        error: true,
+        msg: "Invalid refresh token.",
       });
     }
 
     // FIX: Pass the fastify instance (reply.server) to jwtMaker
     const payload = { id: user._id.toString(), username: user.username };
-    const { accessToken: newAccessToken } = await jwtMaker(reply.server, payload); // FIXED: passing reply.server
+    const { accessToken: newAccessToken } = await jwtMaker(
+      reply.server,
+      payload,
+    ); // FIXED: passing reply.server
 
     // Set new access token cookie
-    reply.setCookie('accessToken', newAccessToken, {
+    reply.setCookie("accessToken", newAccessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       maxAge: 10 * 60 * 1000,
-      path: '/',
+      path: "/",
     });
 
     request.user = payload;
-
   } catch (error) {
     request.log.error(error);
-    return reply.status(500).send({ 
-      error: true, 
-      msg: "Authentication error: " + error.message 
+    return reply.status(500).send({
+      error: true,
+      msg: "Authentication error: " + error.message,
     });
   }
 };

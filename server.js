@@ -15,6 +15,7 @@ import feed from "./routes/feed.js";
 import user from "./routes/user.js";
 import { Initialize } from "./utils/edsaTokenMaker.js";
 import { connectDB, getDbStatus } from "./utils/db.js";
+import feedRoutes from "./routes/feed.js";
 
 export const fastify = Fastify({
   logger: true,
@@ -56,6 +57,7 @@ Initialize();
 fastify.register(api, { prefix: '/api' });
 fastify.register(auth, { prefix: '/api/auth' });
 fastify.register(user, { prefix: '/api/user' });
+fastify.register(feedRoutes, { prefix: '/api/feed' });
 
 // Health check route
 fastify.get('/health', async () => {

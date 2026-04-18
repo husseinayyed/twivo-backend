@@ -7,14 +7,25 @@ const success = {
     },
   },
 };
-export const signupSchema = {
+export // In your schema definition
+const signupSchema = {
   body: {
     type: "object",
-    required: ["name", "username", "email"],
+    required: ["name", "email", "username"],
     properties: {
-      name: { type: "string" },
-      username: { type: "string" },
-      email: { type: "string" },
+      name: { type: "string", minLength: 2, maxLength: 100 },
+      email: {
+        type: "string",
+        format: "email", // Add email format validation
+        pattern: "^[^\\s@]+@([^\\s@]+\\.)+[^\\s@]+$", // Email regex
+      },
+      // In your schema, change the pattern to allow more characters:
+      username: {
+        type: "string",
+        minLength: 3,
+        maxLength: 30,
+        pattern: "^[a-zA-Z0-9_.-]+$", // Allow dots, hyphens, underscores
+      },
     },
   },
 };
@@ -25,7 +36,7 @@ export const loginSchema = {
     properties: {
       magicUrl: {
         type: "string",
-             },
+      },
     },
   },
 };

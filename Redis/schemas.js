@@ -1,6 +1,17 @@
 class SchemaClass {
   constructor() {}
-
+  
+  getPublicUserData(user) {
+  // Don't use createTwiCacheData - that's for tweets!
+  // Use createUserCacheData but exclude sensitive fields
+  
+  const fullData = this.createUserCacheData(user);
+  
+  // Remove sensitive fields for public view
+  const { email, refreshToken, isVerified, ...publicData } = fullData;
+  
+  return publicData;
+}
   //  ### User ###
   createUserCacheData(user, _cache = false) {
     return {

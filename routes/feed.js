@@ -1,114 +1,99 @@
-import express from "express";
+// routes/feed.js - FIXED
 import jwtAuth from "../middleware/jwt.js";
-import { Content } from "../models/content.js";
 import Cache from "../utils/cache.js";
-import { Twi } from "../models/twi.js";
-import { Like } from "../models/like.js"
-const feed = express.Router()
+import { LikeSchema } from "./schemas/feedSchemas.js";
 
+async function feedRoutes(fastify, options) {
+  
+  // GET /all
+  fastify.get("/all", { preHandler: [jwtAuth] }, async (req, res) => {
+    try {
+      const feed = await Cache.twi.get.getFeed(req.user.id);
+      return res.status(200).send({ feeds: feed });
+    } catch(e) {
+      console.error('Feed error:', e);
+      return res.status(500).send({ e: true });
+    }
+  });
 
+  // POST /twi/like - FIXED parameter passing
+  fastify.post("/twi/like", { 
+    preHandler: [jwtAuth], 
+    schema: LikeSchema 
+  }, async (req, res) => {
+    // Extract variables from request
+    const { twiId } = req.body;
+    const userId = req.user.id;
 
+    try {
+      // CRITICAL FIX: Pass twiId as string, NOT as object
+      // The error shows it's receiving { twiId: '...' } instead of just '...'
+      const twi = await Cache.twi.get.getContent(twiId, userId);
+      
+      if (!twi) {
+        return res.status(404).send({ e: true, message: "Tweet not found" });
+      }
+      
+      // Check if already liked
+      const alreadyLiked = await Cache.like.get.hasLiked(twiId, userId);
 
-feed.get("/all",jwtAuth,async (req,res)=>{
-  try {
-   const startTime = Date.now();
-    console.time(`getFeed`);
-    
-        // ... your code ...
-        const feed = await Cache.twi.getFeed(req.user.id);
-       
-        const endTime = Date.now();
-        console.timeEnd(`getFeed`);
+      if (!alreadyLiked) {
+        // LIKE: Add like to both DB and Redis
+        const success = await Cache.like.set.addLike(twiId, userId);
         
-        console.log(`✅ getFeed took: ${endTime - startTime}ms`);
-     
-    return res.status(200).json({feeds:feed})
-  } catch(e) {
-    
-    return res.json({e:true})
-  }
-})
-feed.post("/twi/like", jwtAuth, async (req, res) => {
-  const { twiId } = req.body;
-  const userId = req.user.id;
+        if (!success) {
+          return res.status(500).send({ e: true, message: "Failed to like tweet" });
+        }
+        
+        return res.status(200).send({ 
+          e: false, 
+          liked: true, 
+          message: "Tweet liked successfully" 
+        });
+      } else {
+        // UNLIKE: Remove like from both DB and Redis
+        const success = await Cache.like.set.removeLike(twiId, userId);
+        
+        if (!success) {
+          return res.status(500).send({ e: true, message: "Failed to unlike tweet" });
+        }
 
-  if (!twiId) {
-    return res.status(400).json({ e: true, message: "Tweet ID is required" });
-  }
-
-  try {
-    const twi = await Cache.twi.getContent(twiId, userId);
-    if (!twi) {
-      return res.status(404).json({ e: true, message: "Tweet not found" });
-    }
-    const alreadyLiked = await Cache.like.hasLiked(twiId, userId);
-
-    if (!alreadyLiked) {
-      // LIKE: Everything handled in addLike (DB + Redis)
-      const success = await Cache.like.addLike(twiId, userId);
-      
-      if (!success) {
-        return res.status(500).json({ e: true, message: "Failed to like tweet" });
+        // Get updated like count from cache
+        const likeCount = await Cache.like.get.getTwiLikeCount(twiId);
+        
+        return res.status(200).send({ 
+          e: false, 
+          liked: false, 
+          likes: likeCount,
+          message: "Tweet unliked successfully" 
+        });
       }
-      return res.status(200).json({ 
-        e: false, 
-        liked: true, 
-        message: "Tweet liked successfully" 
-      });
-
-    } else {
-      // UNLIKE: Everything handled in removeLike (DB + Redis)
-      const success = await Cache.like.removeLike(twiId, userId);
-      
-      if (!success) {
-        return res.status(500).json({ e: true, message: "Failed to unlike tweet" });
-      }
-
-      // Get updated like count from cache
-      const likeCount = await Cache.like.getTwiLikeCount(twiId);
-      
-      return res.status(200).json({ 
-        e: false, 
-        liked: false, 
-        likes: likeCount,
-        message: "Tweet unliked successfully" 
+    } catch (error) {
+      console.error('Error in like operation:', error);
+      return res.status(500).send({ 
+        e: true, 
+        message: "Internal server error"
       });
     }
+  });
 
-  } catch (error) {
-    console.error('Error in like operation:', error);
-    return res.status(500).json({ 
-      e: true, 
-      message: "Internal server error"
-    });
-  }
-});
-feed.post("/twi/hasLiked", jwtAuth, async (req, res) => {
-  try {
-    const { twisId } = req.body;
-    
-    if (!req.user.id || !twisId) {
-      return res.status(400).json({ e: true, message: "Missing user ID or twisId" });
+  // POST /twi/hasLiked
+  fastify.post("/twi/hasLiked", { preHandler: [jwtAuth] }, async (req, res) => {
+    try {
+      const { twiId } = req.body;
+      const userId = req.user.id;
+      
+      if (!twiId) {
+        return res.status(400).send({ e: true, message: "twiId is required" });
+      }
+      
+      const hasLiked = await Cache.like.get.hasLiked(twiId, userId);
+      return res.status(200).send({ hasLiked, e: false });
+    } catch (e) {
+      console.error('HasLiked error:', e);
+      return res.status(500).send({ e: true, message: "Internal server error" });
     }
+  });
+}
 
-    // Initialize the list array
-    let list = [];
-    
-    // Check if twisId is an array
-    if (!Array.isArray(twisId)) {
-      return res.status(400).json({ e: true, message: "twisId must be an array" });
-    }
-
-    for (const twiId of twisId) {
-      // Use Cache.hasLiked (not Cache.hasLiked)
-      const hasLiked = await Cache.like.hasLiked(twiId, req.user.id);
-      list.push(hasLiked);
-    }
-    
-    return res.status(200).json({ list, e: false });
-  } catch (e) {
-    
-    return res.status(500).json({ e: true, message: "Internal server error" });
-  }
-});
-export default feed
+export default feedRoutes;

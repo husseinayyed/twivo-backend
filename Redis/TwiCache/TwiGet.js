@@ -56,9 +56,9 @@ class TwiGetCache {
     if (!tweetData || !tweetData.id) return null;
 
     const [isLiked, isFollowing] = await Promise.all([
-      this.cache.like.hasLiked(tweetId, userId),
+      this.cache.like.get.hasLiked(tweetId, userId),
       tweetData.madeBy
-        ? this.cache.follow.isFollowing(userId, tweetData.madeBy)
+        ? this.cache.follow.get.isFollowing(userId, tweetData.madeBy)
         : false,
     ]);
 
@@ -83,27 +83,14 @@ class TwiGetCache {
   async _fetchFromDatabaseAndCache(tweetId, userId) {
     const tweet = await Twi.findById(tweetId).lean();
     if (!tweet) return null;
-
-    const authorId = tweet.madeBy?.toString();
-    if (!authorId) return null;
-
+    const authorId = tweet.madeBy;
     const [isLiked, isFollowing] = await Promise.all([
-      this.cache.like.hasLiked(tweetId, userId),
-      this.cache.follow.isFollowing(userId, authorId),
+      this.cache.like.get.hasLiked(tweetId, userId),
+      this.cache.follow.get.isFollowing(userId, authorId),
     ]);
 
     const cacheData = SchemaCache.createTwiCacheData(
-      {
-        _id: tweet._id,
-        madeBy: authorId,
-        text: tweet.content?.text,
-        likes: tweet.likes,
-        comments: tweet.comments,
-        attachment: tweet.content?.attachment,
-        image: tweet.content?.image,
-        aspectClass: tweet.content?.aspectClass,
-        createdAt: tweet.createdAt,
-      },
+      tweet,
       true
     );
 
@@ -137,18 +124,7 @@ class TwiGetCache {
     if (!tweets.length) return [];
 
     const genericTweets = tweets.map((t) =>
-      SchemaCache.createTwiCacheData(
-        {
-          _id: t._id,
-          madeBy: t.madeBy,
-          text: t.text,
-          likes: 0,
-          comments: 0,
-          attachment: t.attachment,
-          image: t.image,
-          aspectClass: t.aspectClass,
-          createdAt: t.createdAt,
-        },
+      SchemaCache.createTwiCacheData(t,
         true
       )
     );
@@ -175,9 +151,9 @@ class TwiGetCache {
     ];
 
     const [likes, liked, follows] = await Promise.all([
-      this.cache.like.batchGetLikeCounts(tweetIds),
-      this.cache.like.batchHasLiked(tweetIds, userId),
-      this.cache.follow.batchIsFollowing(userIdStr, uniqueAuthors),
+      this.cache.like.get.batchGetLikeCounts(tweetIds),
+      this.cache.like.get.batchHasLiked(tweetIds, userId),
+      this.cache.follow.get.batchIsFollowing(userIdStr, uniqueAuthors),
     ]);
 
     const followMap = {};
@@ -193,6 +169,7 @@ class TwiGetCache {
       myself: userIdStr === authorIds[i],
     }));
   }
+  
 }
 
 export default TwiGetCache;

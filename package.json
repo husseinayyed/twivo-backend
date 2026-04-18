@@ -7,7 +7,6 @@
   "scripts": {
     "test-i": "NODE_ENV=test bun test tests/integration/"
   },
-
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -19,13 +18,10 @@
     "@fastify/jwt": "^10.0.0",
     "@fastify/rate-limit": "^10.3.0",
     "axios": "^1.13.1",
-    "bcrypt": "^6.0.0",
     "bullmq": "^5.72.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
-    "express": "^5.1.0",
-    "express-rate-limit": "^8.1.0",
     "fastify": "^5.7.4",
     "helmet": "^8.1.0",
     "ioredis": "^5.8.2",
@@ -34,6 +30,7 @@
     "mongodb": "^7.1.1",
     "mongoose": "^8.17.1",
     "multer": "^2.0.2",
+    "node-cache": "^5.1.2",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",

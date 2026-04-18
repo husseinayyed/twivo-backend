@@ -1,7 +1,6 @@
 // routes/auth.js - Fastify Version
 import { User } from "../models/user.js";
 import { jwtMaker } from "../utils/jwt.js";
-import bcrypt from "bcrypt";
 import Cache from "../utils/cache.js";
 import {
   signupSchema,
@@ -17,8 +16,8 @@ const rateLimitConfig = {
 };
 
 const authRateLimitConfig = {
-  max: 6000,
-  timeWindow: "1 minute",
+  max: 5,
+  timeWindow: "15 minute",
   keyGenerator: (request) => request.ip,
 };
 
@@ -27,21 +26,42 @@ export default async function (fastify, options) {
     "/sign",
     {
       schema: signupSchema,
-      config: { rateLimit: rateLimitConfig },
+      config: { rateLimit: authRateLimitConfig },
     },
     async (request, reply) => {
       try {
         const { username, email, name } = request.body;
-        const [checkUserName, checkEmail] = await Promise.all([
-          Cache.user.get.getUserByMethod("email", email),
-          Cache.user.get.getUserByMethod("username", username),
+        
+        // Use Redis SETNX to prevent duplicate pending signups
+        const emailKey = `pending:email:${email}`;
+        const usernameKey = `pending:username:${username}`;
+        
+        // Try to set both keys atomically
+        const [emailSet, usernameSet] = await Promise.all([
+          Cache.client.setnx(emailKey, "1"),
+          Cache.client.setnx(usernameKey, "1"),
         ]);
-        if (checkEmail || checkUserName) {
-          return reply
-            .status(409)
-            .send({ msg: "email/username already exists!" });
+        
+        // If either key already exists, return conflict
+        if (!emailSet || !usernameSet) {
+          // Clean up any partial keys
+          if (!emailSet) {
+            fastify.log.info(`Duplicate pending email: ${email}`);
+          }
+          if (!usernameSet) {
+            fastify.log.info(`Duplicate pending username: ${username}`);
+          }
+          return reply.status(409).send({ 
+            msg: "Email or username already has a pending signup. Please check your email or try again later." 
+          });
         }
-
+        
+        // Set expiration for the pending keys (10 minutes)
+        await Promise.all([
+          Cache.client.expire(emailKey, 900),
+          Cache.client.expire(usernameKey, 900),
+        ]);
+        
         const magicUrl = uuid4();
         const key = `magicUrl:${magicUrl}`;
 
@@ -54,7 +74,8 @@ export default async function (fastify, options) {
           })
           .expire(key, 900)
           .exec();
-        fastify.log.info(`${email}:  ${magicUrl}`);
+          
+        fastify.log.info(`${email}: ${magicUrl}`);
         return reply.status(202).send({
           magicUrl: magicUrl,
         });
@@ -63,8 +84,8 @@ export default async function (fastify, options) {
         return reply.status(500).send({ msg: "Server Error 500" });
       }
     },
-  );
-  fastify.post(
+);
+ fastify.post(
     "/login",
     {
       schema: loginSchema,
@@ -82,10 +103,9 @@ export default async function (fastify, options) {
             msg: "Invalid or expired magic URL",
           });
         }
-        // O(1) Fetch all fields of the hash
+        
         const data = await Cache.client.hgetall(key);
 
-        // Redis hgetall returns an empty object {} if the key doesn't exist
         if (!data || Object.keys(data).length === 0) {
           return reply.status(400).send({
             success: false,
@@ -93,22 +113,29 @@ export default async function (fastify, options) {
           });
         }
 
-        // Destructure directly from the object - No splitting needed!
         const { email, username, name } = data;
-        let newUser;
+        
+        // Clean up pending keys
+        const emailKey = `pending:email:${email}`;
+        const usernameKey = `pending:username:${username}`;
+        
+        await Promise.all([
+          Cache.client.del(emailKey),
+          Cache.client.del(usernameKey),
+        ]);
+        
         // Check if user already exists by email
-
-        const user = await Cache.user.get.getUserByMethod("email", email);
-
+        let user = await Cache.user.get.getUserByMethod("email", email);
+        
         if (user) {
-          // User exists - update their refresh token and log them in
+          // User exists - update their refresh token
           const payload = { id: user._id.toString(), username: user.username };
           const { accessToken, refreshToken, hashToken } = await jwtMaker(
             fastify,
             payload,
           );
+          
           const userDB = await User.findOne({ email: email });
-          // Update user's refresh token
           userDB.refreshToken = hashToken;
           await userDB.save();
 
@@ -117,7 +144,7 @@ export default async function (fastify, options) {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-            maxAge: 10 * 60 * 1000, // 10 minutes
+            maxAge: 10 * 60 * 1000,
             path: "/",
           });
 
@@ -125,23 +152,27 @@ export default async function (fastify, options) {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+            maxAge: 7 * 24 * 60 * 60 * 1000,
             path: "/",
           });
+          
+          await Cache.user.set.cacheUserData(userDB);
         } else {
           // Check if username is taken by another email
           const existingUsername = await Cache.user.get.getUserByMethod(
             "username",
             username,
           );
+          
           if (existingUsername) {
             return reply.status(400).send({
               success: false,
               msg: "Username already taken. Please sign up again with a different username.",
             });
           }
-          // Create new user since none exists with this email
-          newUser = await User.create({
+          
+          // Create new user
+          const newUser = await User.create({
             email,
             username,
             name,
@@ -152,6 +183,7 @@ export default async function (fastify, options) {
             id: newUser._id.toString(),
             username: newUser.username,
           };
+          
           const { accessToken, refreshToken, hashToken } = await jwtMaker(
             fastify,
             payload,
@@ -165,7 +197,7 @@ export default async function (fastify, options) {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-            maxAge: 10 * 60 * 1000, // 10 minutes
+            maxAge: 10 * 60 * 1000,
             path: "/",
           });
 
@@ -173,11 +205,13 @@ export default async function (fastify, options) {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+            maxAge: 7 * 24 * 60 * 60 * 1000,
             path: "/",
           });
+          
+          await Cache.user.set.cacheUserData(newUser);
         }
-        await Cache.user.set.cacheUserData(newUser);
+        
         await Cache.client.del(key);
         return reply.status(200).send({
           success: true,
@@ -190,8 +224,7 @@ export default async function (fastify, options) {
         });
       }
     },
-  );
-
+);
   fastify.delete(
     "/logout",
     {

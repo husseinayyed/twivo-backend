@@ -6,29 +6,19 @@ class TwiSetCache {
     this.cache = cacheService;
   }
 
-  async cacheGenericFeed(tweets) {
+  async cacheGenericFeed(twis) {
     const pipeline = this.client.pipeline();
 
-    tweets.forEach((tweet) => {
-      pipeline.lpush("feed:generic", JSON.stringify(tweet));
+    twis.forEach((twi) => {
+      pipeline.lpush("feed:generic", JSON.stringify(twi));
 
       const cacheData = SchemaCache.createTwiCacheData(
-        {
-          _id: tweet._id,
-          madeBy: tweet.madeBy,
-          text: tweet.text,
-          likes: 0,
-          comments: tweet.comments,
-          attachment: tweet.attachment,
-          image: tweet.image,
-          aspectClass: tweet.aspectClass,
-          createdAt: tweet.createdAt,
-        },
+       twi,
         true
       );
 
-      pipeline.hset(`twi:${tweet._id}`, cacheData);
-      pipeline.expire(`twi:${tweet._id}`, 300);
+      pipeline.hset(`twi:${twi._id}`, cacheData);
+      pipeline.expire(`twi:${twi._id}`, 300);
     });
 
     pipeline.ltrim("feed:generic", 0, 19);

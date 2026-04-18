@@ -1,11 +1,11 @@
 import Redis from "ioredis";
 import UserCache from "../Redis/UserCache/index.js";
 import TwiCache from "../Redis/TwiCache/index.js";
-import LikeCache from "../Redis/LikeCache.js";
-import FollowCache from "../Redis/FollowCache.js";
+import LikeCache from "../Redis/LikeCache/index.js";
+import FollowCache from "../Redis/FollowCache/index.js";
 
 const redisUrl = process.env.REDIS_URL || "redis://127.0.0.1:6379";
-console.log(`Connecting to Redis: ${redisUrl}`);
+
 
 class CacheService {
   constructor() {
