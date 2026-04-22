@@ -214,7 +214,6 @@ export default async function (fastify, options) {
         await Cache.client.del(key);
         return reply.status(200).send({
           success: true,
-           secure: process.env.NODE_ENV,
         });
       } catch (e) {
         fastify.log.error(e);
