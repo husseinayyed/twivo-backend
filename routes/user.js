@@ -159,7 +159,7 @@ async function userRoutes(fastify, options) {
           ]).catch((error) => {
             throw new Error(error);
           });
-          return reply.status(202).send({ magicUrl: token });
+          return reply.status(202).send({ token: token });
         }
       } catch (error) {
         fastify.log.error(error);

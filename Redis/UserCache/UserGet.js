@@ -140,11 +140,11 @@ async _fetchFreshUserTwis(userId, viewerId, startTime) {
       // BATCH ALL METADATA - PARALLEL
       const [likeCounts, likedStatuses, followStatus] = await Promise.all([
         // 1. Batch like counts
-        this.cache.like.batchGetLikeCounts(tweetIds),
+        this.cache.like.get.batchGetLikeCounts(tweetIds),
 
         // 2. Batch liked status
         viewerId
-          ? this.cache.like.batchHasLiked(tweetIds, viewerId)
+          ? this.cache.like.get.batchHasLiked(tweetIds, viewerId)
           : Promise.resolve(tweetIds.map(() => false)),
 
         // 3. Get follow status

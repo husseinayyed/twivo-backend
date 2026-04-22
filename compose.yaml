@@ -4,7 +4,6 @@ services:
     container_name: twivo-redis
     command: >
       redis-server 
-      --requirepass ${REDIS_PASS}
       --maxmemory 256mb 
       --maxmemory-policy allkeys-lru
     deploy:
@@ -14,12 +13,16 @@ services:
     networks:
       - twivo
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASS}", "ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
+    # Replaced 'none' with capped logging to prevent blind spots
     logging:
-      driver: "none"
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
-  
+
   mongodb:
     image: mongo:latest
     container_name: twivo-mongodb
@@ -29,7 +32,7 @@ services:
       - MONGO_INITDB_DATABASE=${MONGO_DB}
     command: ["mongod", "--quiet", "--wiredTigerCacheSizeGB", "0.265"]
     ports:
-    - "27017:27017"
+      - "27017:27017"
     deploy:
       resources:
         limits:
@@ -37,30 +40,72 @@ services:
     networks:
       - twivo
     healthcheck:
-      # This logic: Try pinging without auth (startup phase) 
-      # OR try pinging with auth (ready phase).
       test: >
         mongosh --quiet --eval "db.adminCommand('ping')" || 
         mongosh --quiet -u "${MONGO_USER}" -p "${MONGO_PASS}" --authenticationDatabase admin --eval "db.adminCommand('ping')"
       interval: 10s
       timeout: 5s
-      retries: 10  # Increased retries to give the init script time to finish
-      start_period: 30s # Crucial: Gives Mongo 30s to create the user before failing
+      retries: 5 # Reduced from 10 to speed up backend start
+      start_period: 15s
     logging:
-      driver: "none"
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
+
+  media:
+    image: twivo-media:latest
+    container_name: twivo-media-app
+    restart: unless-stopped
+    volumes:
+      # Use a volume for the public key to avoid formatting issues
+      - ./keys/public.pem:/app/keys/public.pem:ro
+      - ../twivo-media/media:/app/media:rw
+    ports:
+      - "8080:8080"
+    environment:
+    
+      - REDIS_URL=tcp://twivo-redis:6379
+      - SERVER_PORT=8080
+      - SSL_CERT_PATH=${SSL_CERT_PATH}
+    depends_on:
+      - redis
+    networks:
+      - twivo
+
   backend:
     build: .
     image: twivo-backend:latest
     container_name: twivo-backend
     ports:
       - "3000:3000"
+    volumes:
+      # Mount the key file as read-only. 
+      # Ensure ./keys/private.pem exists on your host.
+      - ./keys/private.pem:/app/keys/private.pem:ro
+   
     environment:
       - DB_URL=${DB_URL}
-      - REDIS_URL=${REDIS_URL}
+      - REDIS_URL=redis://twivo-redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - REFRESH_SECRET=${REFRESH_SECRET}
+      - BLAKE3_SECRET=${BLAKE3_SECRET}
+      # Switch to path-based env for the utility to read
+      - ED25519_KEY_PATH=/app/keys/private.pem
+      - ED25519_PUBLIC_KEY=${ED25519_PUBLIC_KEY}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - COOKIE_SECRET=${COOKIE_SECRET}
+      - PORT=3000
+      - NODE_ENV=${NODE_ENV}
+      - MEDIA_SERVICE_URL=http://twivo-media-app:8080
     depends_on:
-      redis: { condition: service_healthy }
-      mongodb: { condition: service_healthy }
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      media:
+        condition: service_started
     networks:
       - twivo
     restart: unless-stopped
@@ -69,13 +114,24 @@ services:
     build: .
     image: twivo-backend:latest
     container_name: twivo-worker
-    command: node worker/Twi/twi.js
+    command: bun run worker/Twi/twi.js
+    volumes:
+      - ./keys/private.pem:/app/keys/private.pem:ro
     environment:
       - DB_URL=${DB_URL}
-      - REDIS_URL=${REDIS_URL}
+      - REDIS_URL=redis://twivo-redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - REFRESH_SECRET=${REFRESH_SECRET}
+      - COOKIE_SECRET=${COOKIE_SECRET}
+      - BLAKE3_SECRET=${BLAKE3_SECRET}
+      - NODE_ENV=${NODE_ENV}
+      - ED25519_KEY_PATH=/app/keys/private.pem
+      - ED25519_PUBLIC_KEY=${ED25519_PUBLIC_KEY}
     depends_on:
-      redis: { condition: service_healthy }
-      mongodb: { condition: service_healthy }
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
     networks:
       - twivo
     restart: unless-stopped

@@ -6,7 +6,8 @@ import { blake3_hash } from "../native/setup.js";
 const jwtAuth = async (request, reply) => {
   try {
     // Get tokens from cookies
-    const accessToken = request.cookies.accessToken;
+    // Check the RAW header string before Fastify even parses it
+const accessToken = request.cookies.accessToken;
     const refreshToken = request.cookies.refreshToken;
     // First try access token
     if (accessToken) {
@@ -23,7 +24,7 @@ const jwtAuth = async (request, reply) => {
     if (!refreshToken) {
       return reply.status(401).send({
         error: true,
-        msg: "Access token is missing or invalid.",
+        msg: "Refresh token is missing or invalid.",
       });
     }
 
@@ -55,7 +56,7 @@ const jwtAuth = async (request, reply) => {
     // Then for comparison:
    // Verify refresh token matches stored hash
 const receivedHash = blake3_hash(refreshToken);
-const storedHash = (user.refreshToken);
+const storedHash = Buffer.from(user.refreshToken);
     // Ensure both are buffers of same length
     if (receivedHash.length !== storedHash.length) {
       return reply.status(401).send({
@@ -64,7 +65,7 @@ const storedHash = (user.refreshToken);
       });
     }
 
-    if (receivedHash !== storedHash) {
+    if (!crypto.timingSafeEqual(receivedHash, storedHash)) {
       return reply.status(401).send({
         error: true,
         msg: "Invalid refresh token.",

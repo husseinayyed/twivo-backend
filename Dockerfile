@@ -1,13 +1,18 @@
-FROM node:24-alpine
+FROM oven/bun:1-alpine
 
 WORKDIR /app
 
+# Copy package files
 COPY package*.json ./
+COPY bun.lockb* ./
 
-RUN npm install
+# Install dependencies
+RUN bun install --frozen-lockfile
 
+# Copy source code
 COPY . .
+
 
 EXPOSE 3000
 
-CMD ["node", "server.js"]
+CMD ["bun", "server.js"]

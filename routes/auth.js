@@ -7,7 +7,6 @@ import {
   logoutSchema,
   loginSchema,
 } from "./schemas/authSchemas.js";
-import jwtAuth from "../middleware/jwt.js";
 import uuid4 from "uuid4";
 const rateLimitConfig = {
   max: 5,
@@ -199,7 +198,7 @@ export default async function (fastify, options) {
             sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
             maxAge: 10 * 60 * 1000,
             path: "/",
-          });
+          })
 
           reply.setCookie("refreshToken", refreshToken, {
             httpOnly: true,
@@ -215,6 +214,7 @@ export default async function (fastify, options) {
         await Cache.client.del(key);
         return reply.status(200).send({
           success: true,
+           secure: process.env.NODE_ENV,
         });
       } catch (e) {
         fastify.log.error(e);
