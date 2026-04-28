@@ -5,7 +5,7 @@ const TwiQueue = new Queue("twi-maker", {
   connection: Cache.queueConnection
 });
 
-export async function addTwiToQueue(text, userId, attachment, mediaPath, orientation, twiId) {
+export async function addTwiToQueue(text, userId, attachment, mediaPath, orientation, twiId,opt) {
  console.log(twiId,text)
  return await TwiQueue.add("twi-maker", {
     text,
@@ -13,6 +13,7 @@ export async function addTwiToQueue(text, userId, attachment, mediaPath, orienta
     attachment,
     mediaPath,
     orientation,
-    twiId
+    twiId,
+    opt
   });
 }
