@@ -56,31 +56,17 @@ async function userRoutes(fastify, options) {
     try {
       const userId = request.user.id;
 
-      const userData = await Cache.user.get.getUser(userId);
+      const userData = await Cache.user.get.getUser(userId,true);
       if (!userData) {
         return reply.status(404).send({ error: "User not found" });
       }
 
-      const { username, bio, image, createdAt } = userData;
-
-      const userTwis = await Cache.user.get.getUserTwis(userId, userId);
-      const followStats = await Cache.follow.get.getFollowStats(userId);
-
       fastify.log.info(`✅ Profile loaded in ${Date.now() - start}ms`);
 
-      reply.status(200).send({
-        data: {
-          username,
-          bio,
-          image,
-          createdAt,
-          userId,
-          myself: true,
-        },
-        feeds: userTwis,
-        followersCount: followStats.followers || 0,
-        followingCount: followStats.following || 0,
-      });
+      return reply
+            .type("application/x-protobuf")
+            .status(200)
+            .send(Buffer.from(binaryData));
     } catch (error) {
       fastify.log.error(error);
       reply.status(500).send({ error: "Failed to load profile" });

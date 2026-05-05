@@ -97,6 +97,7 @@ services:
       - FRONTEND_URL=${FRONTEND_URL}
       - COOKIE_SECRET=${COOKIE_SECRET}
       - PORT=3000
+      - ADDON_ENV=${ADDON_ENV}
       - NODE_ENV=${NODE_ENV}
       - MEDIA_SERVICE_URL=http://twivo-media-app:8080
     depends_on:
@@ -122,6 +123,7 @@ services:
       - REDIS_URL=redis://twivo-redis:6379
       - JWT_SECRET=${JWT_SECRET}
       - REFRESH_SECRET=${REFRESH_SECRET}
+      - ADDON_ENV=${ADDON_ENV}
       - COOKIE_SECRET=${COOKIE_SECRET}
       - BLAKE3_SECRET=${BLAKE3_SECRET}
       - NODE_ENV=${NODE_ENV}

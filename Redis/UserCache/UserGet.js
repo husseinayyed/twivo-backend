@@ -43,6 +43,17 @@ class UserGet {
       return null;
     }
   }
+  async getMyProfile(token) {
+    try {
+      const cached = await this._getCachedUser(token,true);
+      if (cached) return cached;
+
+      return await this._fetchAndCacheUser(token);
+    } catch (err) {
+      console.error("getUser error:", err);
+      return null;
+    }
+  }
 
   async getUserByMethod(method, token) {
     try {
@@ -192,13 +203,13 @@ async _fetchFreshUserTwis(userId, viewerId, startTime) {
       .filter(Boolean);
   }
 
-  async _getCachedUser(token) {
-    const key = `user:${token}`;
+  async _getCachedUser(token,myself = false) {
+    const key = myself ? `user:${token}` : `user:${token}:public`;
 
     const exists = await this.client.exists(key);
     if (!exists) return null;
 
-    const cached = await this.client.hgetall(key);
+    const cached = await this.client.get(key);
     if (!cached?.username) return null;
 
     return SchemaCache.createUserCacheData(cached, token);

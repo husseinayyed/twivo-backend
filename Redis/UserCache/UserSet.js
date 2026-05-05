@@ -1,5 +1,6 @@
 import SchemaCache from "../schemas.js";
 import { User } from "../../models/user.js";
+import { protoSerializeUser } from "../../native/setup.js";
 
 class UserSet {
   constructor(client, cacheService) {
@@ -51,39 +52,38 @@ class UserSet {
   // ========== USER CACHE WRITE ==========
 
   async cacheUserData(user) {
-    try {
-      const userKey = `user:${user._id}`;
+  try {
+    const userId = user._id.toString();
+    const userKey = `user:${userId}`;
+    const publicKey = `user:${userId}:public`;
 
-      const fields = SchemaCache.createUserCacheData(user, true);
+    // 1. Prepare Data using your SchemaClass logic
+    // We use your existing logic to ensure consistent field formats (dates, strings)
+    const fullData = SchemaCache.createUserCacheData(user, true);
+    
+    // 2. Generate Protobuf Binaries
+    // Internal Blob (isPublic = false)
+    const internalBinary = protoSerializeUser(fullData, false);
 
-      const pipeline = this.client.pipeline();
+    // Public Blob (isPublic = true)
+    // We pass the same data; the C++ side ignores fields not in PublicUser
+    const publicBinary = protoSerializeUser(fullData, true);
 
-      // ❗ FIX: correct Redis usage (NO TTL inside HSET)
-      pipeline.hset(userKey, ...Object.entries(fields).flat());
+    const pipeline = this.client.pipeline();
 
-      pipeline.expire(userKey, 604800);
+    // 3. Store Binaries (SET is 3x faster than HSET for this)
+    pipeline.set(userKey, Buffer.from(internalBinary), "EX", 604800);
+    pipeline.set(publicKey, Buffer.from(publicBinary), "EX", 604800);
 
-      // indexes
-      pipeline.set(
-        `user:username:${user.username}`,
-        user._id,
-        "EX",
-        604800
-      );
+    // 4. Secondary Indexes
+    pipeline.set(`user:username:${user.username}`, userId, "EX", 604800);
+    pipeline.set(`user:email:${user.email}`, userId, "EX", 604800);
 
-      pipeline.set(
-        `user:email:${user.email}`,
-        user._id,
-        "EX",
-        604800
-      );
-
-      await pipeline.exec();
-    } catch (err) {
-      console.error("cacheUserData error:", err);
-    }
+    await pipeline.exec();
+  } catch (err) {
+    console.error("cacheUserData error:", err);
   }
-
+}
   // ========== USER TWIS LIST CACHE ==========
 
   async cacheUserTwis(userId, twis) {

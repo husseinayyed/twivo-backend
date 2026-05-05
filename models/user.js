@@ -3,7 +3,7 @@ const db = mongoose
 const sign = new db.Schema({
   name: {
     type: String,
-    required: false,
+    required: true,
     default:"Twivo's user",
     trim: true,
   },
@@ -33,7 +33,7 @@ const sign = new db.Schema({
   },
   refreshToken: {
     type: String,
-    required: false,
+    required: true,
   }},
   {
     timestamps:true

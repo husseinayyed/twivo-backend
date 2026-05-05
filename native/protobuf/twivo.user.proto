@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package twivo.v1.user;
+
+message User {
+  string id = 1;
+  string username = 2;
+  string email = 3;
+  bool isVerified = 4;
+  optional string image = 5;
+  optional string bio = 6;
+  string refresh_token = 7;
+  string created_at = 8;
+}
+
+// Public representation for external API responses
+message PublicUser {
+  string id = 1;
+  string username = 2;
+  bool isVerified = 3; 
+  optional string image = 4;
+  optional string bio = 5;
+  string created_at = 6;
+}
