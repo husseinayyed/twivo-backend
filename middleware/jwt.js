@@ -56,16 +56,17 @@ const accessToken = request.cookies.accessToken;
     // Then for comparison:
    // Verify refresh token matches stored hash
 const receivedHash = blake3_hash(refreshToken);
-const storedHash = Buffer.from(user.refreshToken);
+const receivedBuffer = Buffer.from(receivedHash, 'base64');
+const storedBuffer = Buffer.from(user.refreshToken, 'base64');
     // Ensure both are buffers of same length
-    if (receivedHash.length !== storedHash.length) {
+    if (receivedBuffer.length !== storedBuffer.length) {
       return reply.status(401).send({
         error: true,
         msg: "Invalid refresh token format.",
       });
     }
 
-    if (!crypto.timingSafeEqual(receivedHash, storedHash)) {
+    if (!crypto.timingSafeEqual(receivedBuffer, storedBuffer)) {
       return reply.status(401).send({
         error: true,
         msg: "Invalid refresh token.",

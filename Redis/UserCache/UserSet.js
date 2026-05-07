@@ -1,6 +1,6 @@
 import SchemaCache from "../schemas.js";
 import { User } from "../../models/user.js";
-import { protoSerializeUser } from "../../native/setup.js";
+import protoSerializeUser from "../../protobuf/setup.js";
 
 class UserSet {
   constructor(client, cacheService) {
@@ -59,7 +59,7 @@ class UserSet {
 
     // 1. Prepare Data using your SchemaClass logic
     // We use your existing logic to ensure consistent field formats (dates, strings)
-    const fullData = SchemaCache.createUserCacheData(user, true);
+    const fullData = SchemaCache.createUserCacheData(user, false);
     
     // 2. Generate Protobuf Binaries
     // Internal Blob (isPublic = false)
@@ -67,7 +67,7 @@ class UserSet {
 
     // Public Blob (isPublic = true)
     // We pass the same data; the C++ side ignores fields not in PublicUser
-    const publicBinary = protoSerializeUser(fullData, true);
+    const publicBinary = protoSerializeUser(fullData, false);
 
     const pipeline = this.client.pipeline();
 

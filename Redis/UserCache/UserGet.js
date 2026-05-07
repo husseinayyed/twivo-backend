@@ -121,6 +121,21 @@ async getUserProfileWithStats(userId, viewerId) {
     }
   };
 }
+  async getUserBinary(userId, myself = false) {
+    const key = myself ? `user:${userId}` : `user:${userId}:public`;
+    let cached = await this.client.getBuffer(key);
+    if (cached) return cached;
+
+    // Fetch from DB and cache
+    const user = await User.findById(userId);
+    if (!user) return null;
+
+    this.cache.user.set.cacheUserData(user).catch(console.error);
+
+    // Now get the cached binary
+    cached = await this.client.getBuffer(key);
+    return cached;
+  }
   async getUsers(userIds) {
     if (!Array.isArray(userIds) || userIds.length === 0) return [];
 
@@ -212,7 +227,7 @@ async _fetchFreshUserTwis(userId, viewerId, startTime) {
     const cached = await this.client.get(key);
     if (!cached?.username) return null;
 
-    return SchemaCache.createUserCacheData(cached, token);
+    return cached;
   }
 
   async _getCachedUserByMethod(method, token) {

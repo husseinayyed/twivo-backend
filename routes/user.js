@@ -8,6 +8,7 @@ import jwtAuth from "../middleware/jwt.js";
 import signEd25519Token from "../utils/edsaTokenMaker.js";
 import UserMakerCache from "../Redis/Maker/DB/UserMakerCache.js";
 import { ObjectId } from "mongodb";
+import protoSerializeUser from "../protobuf/setup.js";
 import { createTwiSchema } from "./schemas/feedSchemas.js";
 import { addTwiToQueue } from "../queue/Twi/Twi.js";
 import SchemaCache from "../Redis/schemas.js";
@@ -56,17 +57,14 @@ async function userRoutes(fastify, options) {
     try {
       const userId = request.user.id;
 
-      const userData = await Cache.user.get.getUser(userId,true);
+      const userData = await Cache.user.get.getUserBinary(userId,true);
       if (!userData) {
         return reply.status(404).send({ error: "User not found" });
       }
-
-      fastify.log.info(`✅ Profile loaded in ${Date.now() - start}ms`);
-
       return reply
             .type("application/x-protobuf")
             .status(200)
-            .send(Buffer.from(binaryData));
+            .send(userData);
     } catch (error) {
       fastify.log.error(error);
       reply.status(500).send({ error: "Failed to load profile" });

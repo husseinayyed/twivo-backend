@@ -9,8 +9,8 @@ Content-Type: application/json
 
 {
     "name":"ddvdd",
-    "email":"ivddv@gmail.com",
-    "username":"dcvds"
+    "email":"vgtvdvfdv@gmail.com",
+    "username":"fvddxcsxds"
 }
 
 ### login
@@ -18,6 +18,7 @@ Content-Type: application/json
 POST http://localhost:3000/api/auth/login
 Content-Type: application/json
 
+
 {
-  "magicUrl": "9a92cb36-79d5-45f6-925d-7a64d3c9ddcb"
+  "magicUrl": "657ffb69-5be9-4ec7-b298-c319bd88c822"
 }

@@ -81,10 +81,12 @@ services:
     ports:
       - "3000:3000"
     volumes:
+      - .:/app
+    # Override the command to stay alive so you can work inside it
       # Mount the key file as read-only. 
       # Ensure ./keys/private.pem exists on your host.
       - ./keys/private.pem:/app/keys/private.pem:ro
-   
+    command: tail -f /dev/null
     environment:
       - DB_URL=${DB_URL}
       - REDIS_URL=redis://twivo-redis:6379
