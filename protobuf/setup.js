@@ -34,5 +34,21 @@ export default function protoSerializeUser(data, isPublic = true) {
     const message = UserType.create(data);
     return UserType.encode(message).finish();
 }
+export function verifyUserMessage(data, isPublic) {
+    const UserType = isPublic ? PublicUser : User;
+
+    try {
+        const message = UserType.decode(data);
+        const object = UserType.toObject(message);
+        
+        // If verify returns null, the message is valid
+    
+      return UserType.verify(object) === null;
+  
+    } catch (e) {
+        // If decode fails or throws, it's invalid
+           return false;
+    }
+}
 
 // Export the types in case you need them for .decode() elsewhere

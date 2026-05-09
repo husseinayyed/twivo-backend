@@ -1,5 +1,5 @@
 // tests/integration/01-auth.test.js
-import { getAgent, closeServer } from "../setup.js";
+import { getAgent, closeServer } from "../../setup.js";
 import { faker } from "@faker-js/faker";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 

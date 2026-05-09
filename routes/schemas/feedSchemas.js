@@ -5,7 +5,11 @@ export const createTwiSchema = {
     required: ["text", "attachment"],
     properties: {
       attachment: { type: "boolean" },
-      text: { type: "string" },
+      text: { 
+        type: "string",
+        minLength:3,
+        maxLength:240
+      },
     },
   },
 };
@@ -18,6 +22,8 @@ export const LikeSchema = {
       twiId: {
         type: 'string',
         pattern: '^[0-9a-fA-F]{24}$',
+        minLength:24,
+        maxLength:24,
         description: 'MongoDB ObjectId (24 hex characters)'
       }
     }

@@ -1,7 +1,8 @@
-import { getAgent } from "../setup.js";
+import { getAgent } from "../../setup.js";
 import { faker } from "@faker-js/faker";
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { ObjectId } from "mongodb";
+import { verifyUserMessage } from "../../../protobuf/setup.js";
 
 let agent;
 let currentUserId;
@@ -139,22 +140,30 @@ describe("FOLLOW & PROFILE ROUTES", () => {
 
   describe("GET /api/user/profile", () => {
     it("should get current user's profile", async () => {
-      const res = await agent.get("/api/user/profile");
-      
-      expect(res.statusCode).toBe(200);
-      expect(res.body).toHaveProperty("data");
-      expect(res.body.data).toHaveProperty("username");
-      expect(res.body.data).toHaveProperty("userId");
-      expect(res.body.data).toHaveProperty("myself", true);
-      expect(res.body).toHaveProperty("feeds");
-      expect(res.body).toHaveProperty("followersCount");
-      expect(res.body).toHaveProperty("followingCount");
-      expect(typeof res.body.followersCount).toBe("number");
-      expect(typeof res.body.followingCount).toBe("number");
-      expect(Array.isArray(res.body.feeds)).toBe(true);
-    });
+      const res = await agent
+        .get("/api/user/profile")
+        .buffer() // Crucial: tells the agent to buffer the response
+        .parse(binaryParser); // See helper below if standard buffer() fails
 
-  });
+      expect(res.statusCode).toBe(200);
+      
+      // Now res.body is a Buffer, and verify won't throw "illegal buffer"
+      const isValid = verifyUserMessage(res.body, false);
+      expect(isValid).toBe(true);
+    });
+});
+
+// Helper for supertest to handle binary correctly
+function binaryParser(res, callback) {
+    res.setEncoding('binary');
+    let data = '';
+    res.on('data', (chunk) => { data += chunk; });
+    res.on('end', () => {
+        callback(null, Buffer.from(data, 'binary'));
+    });
+}
+
+
 
   describe("GET /api/user/:id", () => {
     let otherUserId;

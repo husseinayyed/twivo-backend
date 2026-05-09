@@ -1,4 +1,4 @@
-import { getAgent } from "../setup.js";
+import { getAgent } from "../../setup.js";
 import { faker } from "@faker-js/faker";
 import { describe, expect, it, beforeAll } from "vitest";
 import fs from "fs";
@@ -14,9 +14,8 @@ beforeAll(async () => {
   agent = await getAgent();
 });
 
-describe("TWI CREATION WITH MEDIA", () => {
+describe("TWI MEDIA UPLOAD", () => {
   let mediaToken;
-  let twiId;
 
   it("POST /api/user/create - should create TWI and return media token", async () => {
     const res = await agent
@@ -32,7 +31,6 @@ describe("TWI CREATION WITH MEDIA", () => {
     mediaToken = res.body.token;
     
     console.log("✅ TWI created:", {
-
       hasMediaToken: !!mediaToken
     });
   });
@@ -43,7 +41,7 @@ describe("TWI CREATION WITH MEDIA", () => {
     const MEDIA_URL = process.env.MEDIA_SERVICE_URL || "http://twivo-media-app:8080";
     
     // Direct path to the image
-    const imagePath = path.join(__dirname, "images", "images.jpeg");
+    const imagePath = path.join(__dirname, "../images", "images.jpeg");
     
     if (!fs.existsSync(imagePath)) {
       console.warn(`⚠️ Image not found at ${imagePath}, skipping upload test`);
@@ -81,18 +79,63 @@ describe("TWI CREATION WITH MEDIA", () => {
       throw error;
     }
   });
-});
 
-// Existing TWI tests below...
-describe("TWI CREATION", () => {
-  it("POST /api/user/create", async () => {
-    const res = await agent
-      .post("/api/user/create")
-      .send({
-        text: faker.lorem.sentence(),
-        attachment: false
-      });
+  it("POST /upload - should reject invalid token", async () => {
+    const MEDIA_URL = process.env.MEDIA_SERVICE_URL || "http://twivo-media-app:8080";
     
-    expect(res.statusCode).toBe(202);
+    const imagePath = path.join(__dirname, "../images", "images.jpeg");
+    
+    if (!fs.existsSync(imagePath)) {
+      console.warn(`⚠️ Image not found at ${imagePath}, skipping test`);
+      return;
+    }
+    
+    const imageBuffer = fs.readFileSync(imagePath);
+    
+    try {
+      const mediaRes = await fetch(`${MEDIA_URL}/upload`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "image/jpeg",
+          "x-twivo-backend": "invalid-token"
+        },
+        body: imageBuffer
+      });
+      
+      expect(mediaRes.status).toBe(401);
+    } catch (error) {
+      if (error.code === 'ECONNREFUSED' || error.cause?.code === 'ECONNREFUSED') {
+        console.warn("⚠️ Media service not reachable, skipping test");
+        return;
+      }
+      throw error;
+    }
+  });
+
+  it("POST /upload - should handle large files", async () => {
+    const MEDIA_URL = process.env.MEDIA_SERVICE_URL || "http://twivo-media-app:8080";
+    
+    // Create a large buffer (10MB)
+    const largeBuffer = Buffer.alloc(10 * 1024 * 1024);
+    
+    try {
+      const mediaRes = await fetch(`${MEDIA_URL}/upload`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "x-twivo-backend": mediaToken || "test-token"
+        },
+        body: largeBuffer
+      });
+      
+      // Expect either 413 (Payload Too Large) or 401/403 for invalid token
+      expect([401, 403, 413, 503]).toContain(mediaRes.status);
+    } catch (error) {
+      if (error.code === 'ECONNREFUSED' || error.cause?.code === 'ECONNREFUSED') {
+        console.warn("⚠️ Media service not reachable, skipping test");
+        return;
+      }
+      throw error;
+    }
   });
 });

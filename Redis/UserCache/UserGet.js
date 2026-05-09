@@ -1,10 +1,14 @@
 import SchemaCache from "../schemas.js";
 import { User } from "../../models/user.js";
 import { Twi } from "../../models/twi.js";
+import { twisInternalMethods } from "./UserTwisInternal.js";
+import { profileInternalMethods } from "./UserProfileInternal.js";
+
 class UserGet {
   constructor(client, cacheService) {
     this.client = client;
     this.cache = cacheService;
+    Object.assign(this, twisInternalMethods, profileInternalMethods);
   }
 
   // ========== PUBLIC GETTERS ==========
@@ -149,171 +153,6 @@ async getUserProfileWithStats(userId, viewerId) {
 
   // ========== INTERNAL GETTERS ==========
 
-async _fetchFreshUserTwis(userId, viewerId, startTime) {
-    try {
-      // Fetch from database
-      const twis = await Twi.find({ madeBy: userId })
-        .sort({ createdAt: -1 })
-        .limit(50)
-        .lean();
-
-      if (!twis.length) return [];
-
-      // Extract tweet IDs
-      const tweetIds = twis.map((t) => t._id.toString());
-      const isSameUser = viewerId === userId;
-
-      // BATCH ALL METADATA - PARALLEL
-      const [likeCounts, likedStatuses, followStatus] = await Promise.all([
-        // 1. Batch like counts
-        this.cache.like.get.batchGetLikeCounts(tweetIds),
-
-        // 2. Batch liked status
-        viewerId
-          ? this.cache.like.get.batchHasLiked(tweetIds, viewerId)
-          : Promise.resolve(tweetIds.map(() => false)),
-
-        // 3. Get follow status
-        !isSameUser && viewerId
-          ? this.cache.follow.get.getBatchFollowStatus(viewerId, userId)
-          : Promise.resolve([false, false]),
-      ]);
-
-      // Format tweets
-      
-      const finalTwis = twis.map((twi, index) => {
-       
-        return {
-          ...SchemaCache.createTwiCacheData(twi),
-          isLiked: likedStatuses[index]?.hasLiked || false,
-          isFollowing: !isSameUser ? followStatus[0] : false,
-          followsYou: !isSameUser ? followStatus[1] : false,
-          myself: isSameUser,
-        };
-      });
-
-      // Cache results (async, don't wait)
-      console.log(`✅ USER TWIS FRESH FETCH: ${Date.now() - startTime}ms`);
-      return finalTwis;
-    } catch (error) {
-      console.error("Error fetching fresh user twis:", error);
-      return [];
-    }
-  }
-
-  async _getCachedUserTwis(userId) {
-    const key = `user:${userId}:twis`;
-
-    const cached = await this.client.lrange(key, 0, 49);
-    if (!cached?.length) return null;
-
-    return cached
-      .map((j) => {
-        try {
-          return JSON.parse(j);
-        } catch {
-          return null;
-        }
-      })
-      .filter(Boolean);
-  }
-
-  async _getCachedUser(token,myself = false) {
-    const key = myself ? `user:${token}` : `user:${token}:public`;
-
-    const exists = await this.client.exists(key);
-    if (!exists) return null;
-
-    const cached = await this.client.get(key);
-    if (!cached?.username) return null;
-
-    return cached;
-  }
-
-  async _getCachedUserByMethod(method, token) {
-    const key =
-      method === "email"
-        ? `user:email:${token}`
-        : `user:username:${token}`;
-
-    const exists = await this.client.exists(key);
-    if (!exists) return null;
-
-    return await this.client.get(key);
-  }
-
-  async _batchGetUsers(userIds) {
-    const pipeline = this.client.pipeline();
-    userIds.forEach((id) => pipeline.get(`user:${id}`));
-
-    const results = await pipeline.exec();
-
-    const users = [];
-    const missing = [];
-
-    for (let i = 0; i < results.length; i++) {
-      const [err, data] = results[i];
-
-      if (!err && data) {
-        try {
-          users.push(JSON.parse(data));
-        } catch {
-          missing.push(userIds[i]);
-        }
-      } else {
-        missing.push(userIds[i]);
-      }
-    }
-
-    if (missing.length) {
-      const dbUsers = await this._fetchUsersFromDB(missing);
-      users.push(...dbUsers);
-    }
-
-    return users;
-  }
-
-  async _fetchUsersFromDB(userIds) {
-    const dbUsers = await User.find({ _id: { $in: userIds } }).lean();
-
-    return dbUsers.map((u) => ({
-      ...SchemaCache.createUserCacheData(u),
-    }));
-  }
-   async _fetchAndCacheUser(token) {
-    try {
-      const user = await User.findById(token);
-      if (!user) return null;
-
-      this.cache.user.set.cacheUserData(user).catch(console.error);
-
-      return user;
-    } catch (err) {
-      console.error("_fetchAndCacheUser error:", err);
-      return null;
-    }
-  }
-
-  async _fetchAndCacheUserByMethod(method, token) {
-    try {
-      let user;
-
-      if (method === "email") {
-        user = await User.findOne({ email: token });
-      } else {
-        user = await User.findOne({ username: token });
-      }
-
-      if (!user) return null;
-
-      this.cache.user.set.cacheUserData(user).catch(console.error);
-
-      return user; // ❗ FIXED (was userData bug)
-    } catch (err) {
-      console.error("_fetchAndCacheUserByMethod error:", err);
-      return null;
-    }
-  }
 }
 
 export default UserGet;

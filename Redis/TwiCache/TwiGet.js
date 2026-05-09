@@ -1,10 +1,13 @@
 import { Twi } from "../../models/twi.js";
 import SchemaCache from "../schemas.js";
+import { contentInternalMethods } from "./TwiContentInternal.js";
+import { feedInternalMethods } from "./TwiFeedInternal.js";
 
 class TwiGetCache {
   constructor(client, cacheService) {
     this.client = client;
     this.cache = cacheService;
+    Object.assign(this, contentInternalMethods, feedInternalMethods);
   }
 
   // ================= PUBLIC =================
@@ -51,125 +54,10 @@ class TwiGetCache {
 
   // ================= CACHE READ =================
 
-  async _getCachedContent(tweetId, userId) {
-    const tweetData = await this.client.hgetall(`twi:${tweetId}`);
-    if (!tweetData || !tweetData.id) return null;
-
-    const [isLiked, isFollowing] = await Promise.all([
-      this.cache.like.get.hasLiked(tweetId, userId),
-      tweetData.madeBy
-        ? this.cache.follow.get.isFollowing(userId, tweetData.madeBy)
-        : false,
-    ]);
-
-    return {
-      _id: tweetData.id,
-      text: tweetData.text || "",
-      likes: parseInt(tweetData.likes) || 0,
-      comments: parseInt(tweetData.comments) || 0,
-      attachment: tweetData.attachment === "true",
-      image: tweetData.image || "",
-      aspectClass: tweetData.aspectClass || "",
-      createdAt: tweetData.createdAt,
-      madeBy: tweetData.madeBy || "",
-      isLiked,
-      isFollowing,
-      myself: userId === tweetData.madeBy,
-    };
-  }
-
   // ================= DB FETCH =================
-
-  async _fetchFromDatabaseAndCache(tweetId, userId) {
-    const tweet = await Twi.findById(tweetId).lean();
-    if (!tweet) return null;
-    const authorId = tweet.madeBy;
-    const [isLiked, isFollowing] = await Promise.all([
-      this.cache.like.get.hasLiked(tweetId, userId),
-      this.cache.follow.get.isFollowing(userId, authorId),
-    ]);
-
-    const cacheData = SchemaCache.createTwiCacheData(
-      tweet,
-      true
-    );
-
-    const pipeline = this.client.pipeline();
-
-    pipeline.hset(`twi:${tweetId}`, cacheData);
-    pipeline.expire(`twi:${tweetId}`, 300);
-
-    pipeline.lpush(`user:${authorId}:twis`, JSON.stringify(cacheData));
-    pipeline.ltrim(`user:${authorId}:twis`, 0, 49);
-    pipeline.expire(`user:${authorId}:twis`, 300);
-
-    await pipeline.exec();
-
-    return {
-      ...cacheData,
-      isLiked,
-      isFollowing,
-      myself: userId === authorId,
-    };
-  }
 
   // ================= FEED =================
 
-  async _generateFreshFeed(userId, start) {
-    const tweets = await Twi.aggregate([
-      { $sample: { size: 20 } },
-      { $sort: { createdAt: -1 } },
-    ]);
-
-    if (!tweets.length) return [];
-
-    const genericTweets = tweets.map((t) =>
-      SchemaCache.createTwiCacheData(t,
-        true
-      )
-    );
-
-    await this.cache.twi.set.cacheGenericFeed(genericTweets);
-
-    const personalized = await this._addPersonalization(
-      genericTweets,
-      userId
-    );
-
-    console.log(`✅ FRESH FEED: ${Date.now() - start}ms`);
-    return personalized;
-  }
-
-  async _addPersonalization(tweets, userId) {
-    const userIdStr = userId.toString();
-
-    const tweetIds = tweets.map((t) => t._id);
-    const authorIds = tweets.map((t) => t.madeBy);
-
-    const uniqueAuthors = [
-      ...new Set(authorIds.filter((a) => a && a !== userIdStr)),
-    ];
-
-    const [likes, liked, follows] = await Promise.all([
-      this.cache.like.get.batchGetLikeCounts(tweetIds),
-      this.cache.like.get.batchHasLiked(tweetIds, userId),
-      this.cache.follow.get.batchIsFollowing(userIdStr, uniqueAuthors),
-    ]);
-
-    const followMap = {};
-    follows.forEach((f) => {
-      if (f.success) followMap[f.targetUserId] = f.isFollowing;
-    });
-
-    return tweets.map((t, i) => ({
-      ...t,
-      likes: likes[i]?.count || 0,
-      isLiked: liked[i]?.hasLiked || false,
-      isFollowing: followMap[authorIds[i]] || false,
-      myself: userIdStr === authorIds[i],
-    }));
-  }
-  
 }
 
 export default TwiGetCache;
