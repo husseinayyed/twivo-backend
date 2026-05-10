@@ -41,19 +41,17 @@ class SchemaClass {
   // ### Twi ###
   createTwiCacheData(twi, _cache = false) {
     const text = twi.text?.trim() || "";
-    const likes = twi.likes ?? 0;
-    const comments = twi.comments ?? 0;
     const attachment = twi.attachment ?? false;
 
     return {
       id: _cache ? twi._id?.toString() : twi._id || "",
       madeBy: _cache ? twi.madeBy?.toString() : twi.madeBy || "",
       text,
-      likes: _cache ? likes.toString() : likes,
-      comments: _cache ? comments.toString() : comments,
       attachment: _cache ? attachment.toString() : attachment,
       image: twi.image || "",
       aspectClass: twi.aspectClass || "",
+      likes: _cache ? (twi.likes?.toString() ?? "0") : twi.likes || 0,
+      comments: _cache ? (twi.comments?.toString() ?? "0") : twi.comments || 0,
       createdAt: (() => {
         const d = twi.createdAt;
 

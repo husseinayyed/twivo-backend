@@ -3,29 +3,26 @@ import SchemaCache from "../schemas.js";
 
 export const contentInternalMethods = {
   async _getCachedContent(tweetId, userId) {
-    const tweetData = await this.client.hgetall(`twi:${tweetId}`);
-    if (!tweetData || !tweetData.id) return null;
+    const [tweetData, meta] = await Promise.all([
+      this.client.getBuffer(`twi:${tweetId}`),
+      this.client.hgetall(`twi:${tweetId}:meta`),
+    ]);
 
+    if (!tweetData) return null;
+
+    const madeBy = meta?.madeBy || null;
     const [isLiked, isFollowing] = await Promise.all([
       this.cache.like.get.hasLiked(tweetId, userId),
-      tweetData.madeBy
-        ? this.cache.follow.get.isFollowing(userId, tweetData.madeBy)
-        : false,
+      madeBy ? this.cache.follow.get.isFollowing(userId, madeBy) : false,
     ]);
 
     return {
-      _id: tweetData.id,
-      text: tweetData.text || "",
-      likes: parseInt(tweetData.likes) || 0,
-      comments: parseInt(tweetData.comments) || 0,
-      attachment: tweetData.attachment === "true",
-      image: tweetData.image || "",
-      aspectClass: tweetData.aspectClass || "",
-      createdAt: tweetData.createdAt,
-      madeBy: tweetData.madeBy || "",
+      twi: tweetData,
+      likes: parseInt(meta?.likes, 10) || 0,
+      comments: parseInt(meta?.comments, 10) || 0,
       isLiked,
       isFollowing,
-      myself: userId === tweetData.madeBy,
+      myself: userId?.toString() === madeBy,
     };
   },
 
@@ -38,27 +35,29 @@ export const contentInternalMethods = {
       this.cache.follow.get.isFollowing(userId, authorId),
     ]);
 
-    const cacheData = SchemaCache.createTwiCacheData(
-      tweet,
-      true
-    );
-
+    const cacheData = SchemaCache.createTwiCacheData(tweet, false);
+    const binary = protoSerializeTwi(cacheData);
+    const result = Buffer.from(binary);
     const pipeline = this.client.pipeline();
 
-    pipeline.hset(`twi:${tweetId}`, cacheData);
-    pipeline.expire(`twi:${tweetId}`, 300);
+    // 3. Store binary and separate metadata for fast field access
 
-    pipeline.lpush(`user:${authorId}:twis`, JSON.stringify(cacheData));
-    pipeline.ltrim(`user:${authorId}:twis`, 0, 49);
-    pipeline.expire(`user:${authorId}:twis`, 300);
+    pipeline.set(`twi:${tweetId}`, result, "EX", 86400);
+    pipeline.hset(
+      `twi:${tweetId}:meta`,
+      "madeBy",
+      authorId,
+      "likes",
+      tweet.likes?.toString() ?? "0",
+      "comments",
+      tweet.comments?.toString() ?? "0"
+    );
+    pipeline.expire(`twi:${tweetId}:meta`, 86400);
+    pipeline.lpush(`user:${authorId}:twis`, tweetId);
+    pipeline.expire(`user:${authorId}:twis`, 86400); // stay for an hour
 
     await pipeline.exec();
 
-    return {
-      ...cacheData,
-      isLiked,
-      isFollowing,
-      myself: userId === authorId,
-    };
+    return result;
   },
 };

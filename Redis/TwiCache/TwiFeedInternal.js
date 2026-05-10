@@ -22,15 +22,13 @@ export const feedInternalMethods = {
       genericTweets,
       userId
     );
-
-    console.log(`✅ FRESH FEED: ${Date.now() - start}ms`);
     return personalized;
   },
 
   async _addPersonalization(tweets, userId) {
     const userIdStr = userId.toString();
 
-    const tweetIds = tweets.map((t) => t._id);
+    const tweetIds = tweets.map((t) => t._id || t.id);
     const authorIds = tweets.map((t) => t.madeBy);
 
     const uniqueAuthors = [
@@ -48,12 +46,6 @@ export const feedInternalMethods = {
       if (f.success) followMap[f.targetUserId] = f.isFollowing;
     });
 
-    return tweets.map((t, i) => ({
-      ...t,
-      likes: likes[i]?.count || 0,
-      isLiked: liked[i]?.hasLiked || false,
-      isFollowing: followMap[authorIds[i]] || false,
-      myself: userIdStr === authorIds[i],
-    }));
+    return 
   },
 };
