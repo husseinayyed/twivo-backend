@@ -1,0 +1,11 @@
+package twivo.v1.twi
+
+message Twi {
+  string id = 1;
+  string madeBy = 2;
+  string text = 3;
+  bool attachment = 4;
+  optional string image = 5;
+  optional string aspectClass = 6;
+  string created_at = 7;
+}
