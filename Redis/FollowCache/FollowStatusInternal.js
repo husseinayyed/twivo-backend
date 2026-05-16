@@ -65,112 +65,74 @@ export const followStatusInternalMethods = {
     }
   },
 
-  async batchIsFollowing(userId, targetUserIds) {
-    const userIdStr = userId.toString();
+ async batchIsFollowing(userId, targetUserIds) {
+  if (!targetUserIds.length) return [];
+  
+  const userIdStr = userId.toString();
+  const finalResults = new Array(targetUserIds.length).fill(false);
+  const targetsToCheckInDB = [];
 
-    try {
-      const pipeline = this.client.pipeline();
+  try {
+    const pipeline = this.client.pipeline();
 
-      // First, check Redis for all targets
-      targetUserIds.forEach((targetId) => {
-        const targetIdStr = targetId.toString();
-        pipeline.sismember(`user:${userIdStr}:following`, targetIdStr);
-      });
+    // 1. Batch check Redis
+    targetUserIds.forEach((targetId) => {
+      pipeline.sismember(`user:${userIdStr}:following`, targetId.toString());
+    });
 
-      const results = await pipeline.exec();
-      const finalResults = [];
-      const targetsToCheckInDB = [];
+    const results = await pipeline.exec();
+    
+    results.forEach(([err, isMember], index) => {
+      if (!err && isMember === 1) {
+        finalResults[index] = true;
+      } else {
+        // Not in cache or Redis error: mark for DB check
+        targetsToCheckInDB.push({ id: targetUserIds[index], index });
+      }
+    });
 
-      // Process Redis results
-      results.forEach(([err, redisResult], index) => {
-        const targetUserId = targetUserIds[index];
+    // 2. Batch check MongoDB for misses
+    if (targetsToCheckInDB.length > 0) {
+      const dbIds = targetsToCheckInDB.map(t => t.id);
+      const dbFollows = await Follow.find({
+        follower: userId,
+        following: { $in: dbIds },
+      }).select("following").lean();
 
-        if (!err && redisResult === 1) {
-          // Redis says following
-          finalResults[index] = {
-            targetUserId: targetUserId,
-            isFollowing: true,
-            success: true,
-            fromCache: true,
-          };
-        } else {
-          // Redis says not following OR error - need to check DB
-          targetsToCheckInDB.push({ targetUserId, index });
-          finalResults[index] = {
-            targetUserId: targetUserId,
-            isFollowing: false, // temporary
-            success: false,
-            fromCache: false,
-          };
+      const followingSet = new Set(dbFollows.map(f => f.following.toString()));
+      const redisPipeline = this.client.pipeline();
+
+      targetsToCheckInDB.forEach(({ id, index }) => {
+        const idStr = id.toString();
+        const isFollowing = followingSet.has(idStr);
+        
+        finalResults[index] = isFollowing;
+
+        // 3. Update Cache
+        if (isFollowing) {
+          redisPipeline.sadd(`user:${userIdStr}:following`, idStr);
+          redisPipeline.sadd(`user:${idStr}:followers`, userIdStr);
+          // Standardize TTL (e.g., 1 hour instead of 5 mins for better hit rate)
+          redisPipeline.expire(`user:${userIdStr}:following`, 3600);
         }
       });
 
-      // Check DB for uncertain targets
-      if (targetsToCheckInDB.length > 0) {
-        const targetIdsForDB = targetsToCheckInDB.map((t) => t.targetUserId);
-
-        // Get follows from MongoDB in ONE query
-        const dbFollows = await Follow.find({
-          follower: userId,
-          following: { $in: targetIdsForDB },
-        })
-          .select("following")
-          .lean();
-
-        // Create a set for quick lookup
-        const followingIds = new Set(
-          dbFollows.map((follow) => follow.following.toString()),
-        );
-
-        // Update results and sync to Redis
-        const redisPipeline = this.client.pipeline();
-
-        targetsToCheckInDB.forEach(({ targetUserId, index }) => {
-          const targetIdStr = targetUserId.toString();
-          const isFollowing = followingIds.has(targetIdStr);
-
-          // Update final result
-          finalResults[index] = {
-            targetUserId: targetUserId,
-            isFollowing: isFollowing,
-            success: true,
-            fromCache: false,
-          };
-
-          // Sync to Redis
-          if (isFollowing) {
-            redisPipeline.sadd(`user:${userIdStr}:following`, targetIdStr);
-            redisPipeline.sadd(`user:${targetIdStr}:followers`, userIdStr);
-            redisPipeline.expire(`user:${userIdStr}:following`, 300);
-            redisPipeline.expire(`user:${targetIdStr}:followers`, 300);
-          }
-        });
-
-        await redisPipeline.exec();
-      }
-
-      return finalResults;
-    } catch (error) {
-      console.error(`Error in batchIsFollowing:`, error);
-
-      // Fallback: check DB
-      const dbFollows = await Follow.find({
-        follower: userId,
-        following: { $in: targetUserIds },
-      })
-        .select("following")
-        .lean();
-
-      const followingIds = new Set(
-        dbFollows.map((follow) => follow.following.toString()),
-      );
-
-      return targetUserIds.map((targetUserId) => ({
-        targetUserId: targetUserId,
-        isFollowing: followingIds.has(targetUserId.toString()),
-        success: true,
-        fromCache: false,
-      }));
+      await redisPipeline.exec();
     }
-  },
+
+    return finalResults;
+
+  } catch (error) {
+    console.error(`Error in batchIsFollowing:`, error);
+
+    // FIXED FALLBACK: Ensure the fallback actually returns the correct booleans
+    const dbFollows = await Follow.find({
+      follower: userId,
+      following: { $in: targetUserIds },
+    }).select("following").lean();
+
+    const followingSet = new Set(dbFollows.map(f => f.following.toString()));
+    return targetUserIds.map(id => followingSet.has(id.toString()));
+  }
+}
 };
