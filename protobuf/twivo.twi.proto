@@ -1,4 +1,6 @@
-package twivo.v1.twi
+syntax = "proto3";
+
+package twivo.v1.twi;
 
 message Twi {
   string id = 1;

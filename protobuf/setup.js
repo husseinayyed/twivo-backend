@@ -14,7 +14,7 @@ const rootForTwi = await protobuf.load(PROTO_TWI_PATH);
 const User = root.lookupType("twivo.v1.user.User");
 const PublicUser = root.lookupType("twivo.v1.user.PublicUser");
 
-const TwiType = root.lookupType("twivo.v1.twi.Twi");
+const TwiType = rootForTwi.lookupType("twivo.v1.twi.Twi");
 /**
  * Serializes a user object into a Protobuf binary buffer
  */
@@ -54,7 +54,7 @@ export function verifyUserMessage(data, isPublic) {
 }
 
 
-export default function protoSerializeTwi(data) {
+export function protoSerializeTwi(data) {
     // Select the correct pre-loaded Type
 
     // Map fields

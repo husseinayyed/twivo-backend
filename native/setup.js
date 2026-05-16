@@ -2,11 +2,11 @@ import { dlopen, ptr, FFIType } from "bun:ffi";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-// 1. Path Management
-const LIB_PATH_PROTOBUF = "/app/native/build/libtwivo_native.so";
+// // 1. Path Management
+// const LIB_PATH_PROTOBUF = "/app/native/build/libtwivo_native.so";
 const LIB_PATH_BLAKE3 = "/app/native/build/libtwivo_blake3.so";
 console.log(`[native/setup] loading blake3 from ${LIB_PATH_BLAKE3}`);
-console.log(`[native/setup] loading protobuf from ${LIB_PATH_PROTOBUF}`);
+// console.log(`[native/setup] loading protobuf from ${LIB_PATH_PROTOBUF}`);
 
 // 2. Load Symbols
 const { symbols: blake3Symbols } = dlopen(LIB_PATH_BLAKE3, {
