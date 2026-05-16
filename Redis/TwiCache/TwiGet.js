@@ -2,7 +2,7 @@ import { Twi } from "../../models/twi.js";
 import SchemaCache from "../schemas.js";
 import { contentInternalMethods } from "./TwiContentInternal.js";
 import { feedInternalMethods } from "./TwiFeedInternal.js";
-
+import { protoSerializeTwi } from "../../protobuf/setup.js";
 class TwiGetCache {
   constructor(client, cacheService) {
     this.client = client;
@@ -20,35 +20,20 @@ class TwiGetCache {
   }
 
   async getFeed(userId) {
-    const start = Date.now();
-
     try {
-      const cachedFeedJson = await this.client.lrange("feed:generic", 0, 19);
-
-      if (cachedFeedJson?.length) {
-        const genericFeeds = cachedFeedJson
-          .map((j) => {
-            try {
-              return JSON.parse(j);
-            } catch {
-              return null;
-            }
-          })
-          .filter(Boolean);
-
-        const personalized = await this._addPersonalization(
-          genericFeeds,
-          userId
-        );
-
-        console.log(`✅ CACHE HIT: ${Date.now() - start}ms`);
-        return personalized;
+      const cachedFeed = await this.client.zrange("feed:generic", 0, 19);
+      let tweetIds = [];
+      if (cachedFeed?.length) {
+        tweetIds = cachedFeed;
+          return await this._assmbleFeedItem(tweetIds, userId);
       }
-
-      return await this._generateFreshFeed(userId, start);
+      const freshFeed = await this._generateFreshFeed(userId);
+      console.log(`Generated fresh feed for user ${userId}:`, freshFeed);
+      if (!freshFeed?.length) return [];
+      return await this._assmbleFeedItem(freshFeed, userId);
+      
     } catch (err) {
       console.error("Feed error:", err);
-      return await this._generateFreshFeed(userId, Date.now());
     }
   }
 

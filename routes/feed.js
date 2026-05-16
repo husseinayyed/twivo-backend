@@ -9,7 +9,9 @@ async function feedRoutes(fastify, options) {
   fastify.get("/all", { preHandler: [jwtAuth] }, async (req, res) => {
     try {
       const feed = await Cache.twi.get.getFeed(req.user.id);
-      return res.status(200).send({ feeds: feed });
+      console.log(`Feed retrieved for user ${req.user.id}`);
+      console.log(feed);
+      return res.status(200).send({ feed });
     } catch(e) {
       console.error('Feed error:', e);
       return res.status(500).send({ e: true });
