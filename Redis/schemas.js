@@ -50,8 +50,6 @@ class SchemaClass {
       attachment: _cache ? attachment.toString() : attachment,
       image: twi.image || "",
       aspectClass: twi.aspectClass || "",
-      likes: _cache ? (twi.likes?.toString() ?? "0") : twi.likes || 0,
-      comments: _cache ? (twi.comments?.toString() ?? "0") : twi.comments || 0,
       createdAt: (() => {
         const d = twi.createdAt;
 
