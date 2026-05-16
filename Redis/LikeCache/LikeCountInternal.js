@@ -1,5 +1,6 @@
+import { fi } from "@faker-js/faker";
 import { Like } from "../../models/like.js";
-
+import { Types } from "mongoose";
 export const likeCountInternalMethods = {
   async getTwiLikeCount(twiId) {
     const likeKey = `twi:likes:${twiId}`;
@@ -43,107 +44,85 @@ export const likeCountInternalMethods = {
     }
   },
 
-  async batchGetLikeCounts(tweetIds) {
-    try {
-      const pipeline = this.client.pipeline();
+async batchHasLiked(tweetIds, userId) {
+  if (!tweetIds || tweetIds.length === 0) return [];
 
-      // First, check Redis for all tweets
-      tweetIds.forEach((tweetId) => {
-        const likeKey = `twi:likes:${tweetId}`;
-        pipeline.scard(likeKey);
-      });
+  const userIdStr = userId.toString();
+  const finalResults = new Array(tweetIds.length).fill(false);
+  const tweetsToCheckInDB = [];
 
-      const results = await pipeline.exec();
-      const finalResults = [];
-      const tweetsToCheckInDB = [];
+  try {
+    const pipeline = this.client.pipeline();
 
-      // Process Redis results
-      results.forEach(([err, redisCount], index) => {
-        const tweetId = tweetIds[index];
+    // 1. Check Redis Set for user likes presence
+    tweetIds.forEach((tweetId) => {
+      // Assuming your write pattern adds users to a set: SADD twi:likes:{tweetId} {userId}
+      pipeline.sismember(`twi:likes:${tweetId}`, userIdStr);
+    });
 
-        if (!err && redisCount > 0) {
-          // Redis has valid count
-          finalResults[index] = {
-            tweetId: tweetId,
-            count: redisCount,
-            success: true,
-            fromCache: true,
-          };
-        } else {
-          // Redis has 0 or error - need to check DB
-          tweetsToCheckInDB.push({ tweetId, index });
-          finalResults[index] = {
-            tweetId: tweetId,
-            count: 0, // temporary
-            success: false,
-            fromCache: false,
-          };
+    const redisResults = await pipeline.exec();
+
+    redisResults.forEach(([err, isMember], index) => {
+      if (!err && isMember === 1) {
+        finalResults[index] = true;
+      } else {
+        // Cache miss or not liked yet - queue up to verify against DB
+        tweetsToCheckInDB.push({ tweetId: tweetIds[index], index });
+      }
+    });
+
+    // 2. Query MongoDB for Cache Misses
+    if (tweetsToCheckInDB.length > 0) {
+      const tweetIdsForDB = tweetsToCheckInDB.map((t) => t.tweetId);
+      
+      // CRITICAL FOR PERFORMANCE: Ensure Compound Index exists on { twiId: 1, likedBy: 1 }
+      // CRITICAL FOR TYPE MATCHING: Cast string IDs to Mongoose ObjectIds
+      const dbLikes = await Like.find({
+        twiId: { $in: tweetIdsForDB.map(id => new Types.ObjectId(id)) },
+        likedBy: new Types.ObjectId(userIdStr),
+      })
+      .select("twiId")
+      .lean();
+
+      // Create a quick O(1) lookup set of strings from the DB results
+      const likedTweetStrings = new Set(dbLikes.map(like => like.twiId.toString()));
+
+      const redisPipeline = this.client.pipeline();
+
+      // 3. Re-align data back to the exact array positions
+      tweetsToCheckInDB.forEach(({ tweetId, index }) => {
+        const hasLiked = likedTweetStrings.has(tweetId.toString());
+        
+        finalResults[index] = hasLiked;
+
+        // Sync back to Redis so subsequent requests hit memory instantly
+        if (hasLiked) {
+          const likeKey = `twi:likes:${tweetId}`;
+          redisPipeline.sadd(likeKey, userIdStr);
+          redisPipeline.expire(likeKey, 3600); // 1-hour sliding window TTL
         }
       });
 
-      // Check DB for tweets with cache misses
-      if (tweetsToCheckInDB.length > 0) {
-        const tweetIdsForDB = tweetsToCheckInDB.map((t) => t.tweetId);
-
-        // Get counts from MongoDB in ONE query
-        const dbCounts = await Like.aggregate([
-          { $match: { twiId: { $in: tweetIdsForDB } } },
-          { $group: { _id: "$twiId", count: { $sum: 1 } } },
-        ]);
-
-        // Create a map for quick lookup
-        const dbCountsMap = {};
-        dbCounts.forEach((item) => {
-          dbCountsMap[item._id.toString()] = item.count;
-        });
-
-        // Update results and sync to Redis
-        const redisPipeline = this.client.pipeline();
-
-        tweetsToCheckInDB.forEach(({ tweetId, index }) => {
-          const dbCount = dbCountsMap[tweetId] || 0;
-
-          // Update final result
-          finalResults[index] = {
-            tweetId: tweetId,
-            count: dbCount,
-            success: true,
-            fromCache: false,
-          };
-
-          // Sync to Redis if there are likes
-          if (dbCount > 0) {
-            const likeKey = `twi:likes:${tweetId}`;
-            // We'll sync the actual users later
-            redisPipeline.set(`twi:likes:${tweetId}:count`, dbCount);
-            redisPipeline.expire(`twi:likes:${tweetId}:count`, 300); // 5 min cache
-          }
-        });
-
-        await redisPipeline.exec();
-      }
-
-      return finalResults;
-    } catch (error) {
-      console.error(`Error in batchGetLikeCounts:`, error);
-
-      // Fallback: get all from DB
-      const dbCounts = await Like.aggregate([
-        { $match: { twiId: { $in: tweetIds } } },
-        { $group: { _id: "$twiId", count: { $sum: 1 } } },
-      ]);
-
-      const dbCountsMap = {};
-      dbCounts.forEach((item) => {
-        dbCountsMap[item._id.toString()] = item.count;
-      });
-
-      return tweetIds.map((tweetId) => ({
-        tweetId: tweetId,
-        count: dbCountsMap[tweetId] || 0,
-        success: true,
-        fromCache: false,
-      }));
+      await redisPipeline.exec();
     }
-  },
+
+    return finalResults;
+
+  } catch (error) {
+    console.error(`Error in batchHasLiked:`, error);
+
+    // Fallback: Query DB cleanly without breaking the response structure
+    try {
+      const dbLikes = await Like.find({
+        twiId: { $in: tweetIds.map(id => new Types.ObjectId(id)) },
+        likedBy: new Types.ObjectId(userIdStr),
+      }).select("twiId").lean();
+
+      const likedTweetStrings = new Set(dbLikes.map(like => like.twiId.toString()));
+      return tweetIds.map(id => likedTweetStrings.has(id.toString()));
+    } catch (fallbackError) {
+      return new Array(tweetIds.length).fill(false); // Fail safely with non-liked states
+    }
+  }
+}
 };

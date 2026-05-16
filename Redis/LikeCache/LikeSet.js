@@ -9,113 +9,99 @@ class LikeSetCache {
     this.cache = cacheService;
   }
 
-    async addLike(twiId, userId) {
-        console.log(`🔍 addLike called: twiId=${twiId}, userId=${userId}`);
+   async addLike(twiId, userId) {
+    console.log(`🔍 addLike called: twiId=${twiId}, userId=${userId}`);
+    
+    const userIdStr = userId.toString();
+    const twiIdStr = twiId.toString();
+    
+    const likeSetKey = `twi:likes:${twiIdStr}`;
+    const metaHashKey = `twi:meta:${twiIdStr}`; // FIXED: Aligned with feed assembly keys
+
+    try {
+        // 1. Check Redis Set for rapid O(1) relational existence check
+        const isLiked = await this.client.sismember(likeSetKey, userIdStr);
         
-        const likeKey = `twi:likes:${twiId}`;
-        
-        try {
-            // 1. Check Redis directly
-            console.log(`🔍 Checking Redis key: ${likeKey}`);
-            const isLiked = await this.client.sismember(likeKey, userId);
-            console.log(`🔍 Redis sismember result: ${isLiked} (0=not liked, 1=liked)`);
+        if (isLiked === 0) {
+            console.log("📥 Attempting to LIKE tweet...");
             
-            // 2. Check MongoDB for comparison
-            const mongoLike = await Like.findOne({ twiId, likedBy: userId });
-            console.log(`🔍 MongoDB like exists: ${!!mongoLike}`);
+            // 2. Multi-key transactional pipeline to update state atomicity
+            const pipeline = this.client.pipeline();
+            pipeline.sadd(likeSetKey, userIdStr);
+            pipeline.hincrby(metaHashKey, 'likes', 1); // FIXED: Increments correct hash key
+            pipeline.expire(likeSetKey, 2592000); // 30 days rolling retention
             
-            if (isLiked === 0) {
-                console.log("📥 Attempting to LIKE tweet...");
-                
-                // Add to Redis
-                const addResult = await this.client.sadd(likeKey, userId.toString());
-                console.log(`🔍 Redis SADD result: ${addResult} (1=added, 0=already exists)`);
-                
-                // Set expiration
-                await this.client.expire(likeKey, 2592000);
-                console.log("✅ Added to Redis");
-                
-                // Save to MongoDB
-                try {
-                    const newLike = await Like.create({ twiId, likedBy: userId });
-                    console.log(`✅ MongoDB like created: ${newLike._id}`);
-                    
-                    // Update tweet likes count
-                    const updatedTwi = await Twi.findByIdAndUpdate(
-                        twiId,
-                        { $inc: { likes: 1 } },
-                        { new: true }
-                    );
-                    console.log(`✅ Tweet likes updated: ${updatedTwi?.likes}`);
-                    
-                } catch (mongoError) {
-                    console.error("❌ MongoDB error:", mongoError.message);
-                    
-                    // If MongoDB fails, rollback Redis
-                    if (mongoError.code === 11000) {
-                        console.log("🔄 Duplicate key - removing from Redis");
-                        await this.client.srem(likeKey, userId.toString());
-                    }
-                }
-                
-                // Invalidate cache
-                await this.client.del("feed");
-                console.log("✅ Feed cache invalidated");
-                
-                return {
-                    success: true,
-                    liked: true,
-                    message: 'Tweet liked successfully'
-                };
-                
-            } else {
-                console.log("📤 Attempting to UNLIKE tweet...");
-                
-                // Remove from Redis
-                const removeResult = await this.client.srem(likeKey, userId.toString());
-                console.log(`🔍 Redis SREM result: ${removeResult} (1=removed, 0=wasn't there)`);
-                
-                console.log("✅ Removed from Redis");
-                
-                // Remove from MongoDB
-                try {
-                    const deleteResult = await Like.deleteOne({ twiId, likedBy: userId });
-                    console.log(`✅ MongoDB like deleted: ${deleteResult.deletedCount}`);
-                    
-                    // Update tweet likes count
-                    const updatedTwi = await Twi.findByIdAndUpdate(
-                        twiId,
-                        { $inc: { likes: -1 } },
-                        { new: true }
-                    );
-                    console.log(`✅ Tweet likes updated: ${updatedTwi?.likes}`);
-                    
-                } catch (mongoError) {
-                    console.error("❌ MongoDB error:", mongoError.message);
-                }
-                
-                // Invalidate cache
-                await this.client.del("feed");
-                console.log("✅ Feed cache invalidated");
-                
-                return {
-                    success: true,
-                    liked: false,
-                    message: 'Tweet unliked successfully'
-                };
+            const [saddReply, hincrReply] = await pipeline.exec();
+            
+            const addResult = saddReply[1];
+            const currentCachedLikes = hincrReply[1];
+
+            // If addResult is 0, it means the user somehow raced and liked it already
+            if (addResult === 1) {
+                // 3. Asynchronously persist changes to MongoDB.
+                // Do not await this before responding to the user if you want <5ms response times.
+                Like.create({ twiId: twiIdStr, likedBy: userIdStr })
+                    .then(() => Twi.findByIdAndUpdate(twiIdStr, { $inc: { likes: 1 } }))
+                    .catch((mongoError) => {
+                        console.error("❌ MongoDB write async sync error:", mongoError.message);
+                        // If it's a true unique constraint duplicate, correct our optimistic counter
+                        if (mongoError.code === 11000) {
+                            const rollbackPipeline = this.client.pipeline();
+                            rollbackPipeline.srem(likeSetKey, userIdStr);
+                            rollbackPipeline.hincrby(metaHashKey, 'likes', -1);
+                            rollbackPipeline.exec();
+                        }
+                    });
             }
             
-        } catch (error) {
-            console.error("❌ CRITICAL ERROR in addLike:", error);
-            console.error("Stack:", error.stack);
+            // OPTIMIZATION: Removed global `del("feed")`. 
+            // Real-time feeds read from the shared `metaHashKey` values, so updates reflect instantly 
+            // without rebuilding the layout cache!
+
+            return {
+                success: true,
+                liked: true,
+                likesCount: currentCachedLikes,
+                message: 'Tweet liked successfully'
+            };
+            
+        } else {
+            console.log("📤 Attempting to UNLIKE tweet...");
+            
+            // 4. Multi-key transactional pipeline for Unliking
+            const pipeline = this.client.pipeline();
+            pipeline.srem(likeSetKey, userIdStr);
+            pipeline.hincrby(metaHashKey, 'likes', -1); // FIXED: Decrements count on unlike execution
+            
+            const [sremReply, hincrReply] = await pipeline.exec();
+            
+            const removeResult = sremReply[1];
+            const currentCachedLikes = hincrReply[1];
+
+            if (removeResult === 1) {
+                // Async persist removal to MongoDB database layer
+                Like.deleteOne({ twiId: twiIdStr, likedBy: userIdStr })
+                    .then(() => Twi.findByIdAndUpdate(twiIdStr, { $inc: { likes: -1 } }))
+                    .catch((mongoError) => console.error("❌ MongoDB delete sync error:", mongoError));
+            }
             
             return {
-                success: false,
-                error: error.message,
-                liked: null
+                success: true,
+                liked: false,
+                likesCount: currentCachedLikes,
+                message: 'Tweet unliked successfully'
             };
         }
+        
+    } catch (error) {
+        console.error("❌ CRITICAL ERROR in addLike:", error);
+        return {
+            success: false,
+            error: error.message,
+            liked: null
+        };
     }
+}
 
     async removeLike(twiId, userId) {
         const likeKey = `twi:likes:${twiId}`;

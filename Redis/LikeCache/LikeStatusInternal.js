@@ -30,7 +30,8 @@ export const likeStatusInternalMethods = {
     }
   },
 
-  async batchHasLiked(tweetIds, userId) {
+  async batchHasLiked(rawTweets, userId) {
+    const tweetIds = rawTweets.map(t => (t._id || t.id || t).toString());
     const userIdStr = userId.toString();
 
     try {
@@ -52,30 +53,15 @@ export const likeStatusInternalMethods = {
 
         if (!err && redisResult === 1) {
           // Redis says liked
-          finalResults[index] = {
-            tweetId: tweetId,
-            hasLiked: true,
-            success: true,
-            fromCache: true,
-          };
+          finalResults.push(true)
         } else if (!err && redisResult === 0) {
           // Redis says not liked (could be accurate or missing)
           tweetsToCheckInDB.push({ tweetId, index });
-          finalResults[index] = {
-            tweetId: tweetId,
-            hasLiked: false, // temporary
-            success: false,
-            fromCache: false,
-          };
+          finalResults.push(false); // temporary
         } else {
           // Redis error
           tweetsToCheckInDB.push({ tweetId, index });
-          finalResults[index] = {
-            tweetId: tweetId,
-            hasLiked: false,
-            success: false,
-            fromCache: false,
-          };
+          finalResults.push(false);
         }
       });
 
@@ -103,12 +89,7 @@ export const likeStatusInternalMethods = {
           const hasLiked = likedTweetIds.has(tweetId);
 
           // Update final result
-          finalResults[index] = {
-            tweetId: tweetId,
-            hasLiked: hasLiked,
-            success: true,
-            fromCache: false,
-          };
+          finalResults[tweetIds.indexOf(tweetId)] = hasLiked;
 
           // Sync to Redis
           const likeKey = `twi:likes:${tweetId}`;
@@ -137,12 +118,7 @@ export const likeStatusInternalMethods = {
         dbLikes.map((like) => like.twiId.toString()),
       );
 
-      return tweetIds.map((tweetId) => ({
-        tweetId: tweetId,
-        hasLiked: likedTweetIds.has(tweetId),
-        success: true,
-        fromCache: false,
-      }));
+      return finalResults;
     }
   },
 };
