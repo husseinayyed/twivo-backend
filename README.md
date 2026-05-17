@@ -1,268 +1,184 @@
 # Twivo – High-Performance Social Backend API
 
-Twivo is a performance-focused backend API for a modern social media platform inspired by Twitter/X.
+Twivo is a performance-focused backend API for a modern social media platform inspired by Twitter/X. Built with **Bun**, **Fastify**, and **Native C++**, it is designed for high-concurrency environments with a cache-first read strategy and SIMD-accelerated data processing.
 
-The system is designed around stateless authentication, cache-first data access, modular architecture, and high-concurrency readiness.
-
-⚠️ This project is under active architectural refactoring and is not production-ready.
-
----
-
-# Design Goals
-
-- High concurrency handling
-- Stateless authentication
-- Cache-first read strategy
-- Strict separation of concerns
-- Minimal external dependency reliance
-- Security-first architecture
+[![Bun](https://img.shields.io/badge/Bun-%23000000.svg?style=for-the-badge&logo=bun&logoColor=white)](https://bun.sh)
+[![Fastify](https://img.shields.io/badge/fastify-%23000000.svg?style=for-the-badge&logo=fastify&logoColor=white)](https://www.fastify.io/)
+[![Redis](https://img.shields.io/badge/redis-%23DD0031.svg?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io/)
+[![MongoDB](https://img.shields.io/badge/MongoDB-%234ea94b.svg?style=for-the-badge&logo=mongodb&logoColor=white)](https://www.mongodb.com/)
+[![C++](https://img.shields.io/badge/c++-%2300599C.svg?style=for-the-badge&logo=c%2B%2B&logoColor=white)](https://isocpp.org/)
 
 ---
 
-# Architecture Overview
+## 🚀 Key Features
 
-Core principles:
-
-- Fastify-based HTTP layer
-- JWT stateless access control
-- Refresh token rotation with hashing
-- Redis as primary cache layer
-- MongoDB as durable storage
-- Modular route/service separation
-
-High-level flow:
-
-Client → Fastify API → Redis → MongoDB
+- **⚡ High-Performance Runtime:** Powered by [Bun](https://bun.sh) for ultra-fast execution and zero-copy FFI.
+- **🛡️ Stateless Authentication:** Passwordless magic-link authentication with JWT rotation and Ed25519 signed tokens.
+- **🧠 Cache-First Architecture:** Redis-backed read layer with Protobuf serialization for minimal latency.
+- **🛠️ Native C++ Core:** SIMD-accelerated BLAKE3 hashing and Protobuf C++ core integrated via Bun FFI.
+- **⏳ Async Processing:** Robust background job processing using BullMQ and Redis Streams.
+- **📦 Protobuf Serialization:** Binary data format for internal communication and caching to reduce memory footprint.
 
 ---
 
-# Authentication Model (Passwordless)
+## 🏗️ Architecture Overview
 
-Twivo uses a fully passwordless authentication model.
+Twivo follows a modular, service-oriented architecture designed for scalability.
 
-No password fields are stored in the database.
-
-## Step 1 – Request Magic Link
-
-```
-POST /api/auth/sign
-```
-
-Input:
-- email (unique)
-- username (unique)
-- name
-
-Server:
-- Generates secure time-limited token
-- Sends magic link via email
-
----
-
-## Step 2 – Verify Magic Link
-
-```
-POST /api/auth/login
+```mermaid
+graph TD
+    Client([📱 Web / Mobile Client]) --> FW[⚡ Fastify Engine]
+    FW --> MW{Middleware Stack}
+    MW --> JWT[🔐 JWT / Ed25519 Auth]
+    
+    subgraph Core["🚀 Application Core"]
+        R_Auth["🔑 Auth Routes"]
+        R_User["👤 User Routes"]
+        R_Feed["📜 Feed Routes"]
+    end
+    
+    JWT --> Core
+    
+    subgraph CacheLayer["🧠 Redis Cache (Protobuf)"]
+        UC[👤 User Cache]
+        TC[🕊️ Twi Cache]
+        FC[🤝 Follow Cache]
+    end
+    
+    Core --> CacheLayer
+    CacheLayer --> DB[(💾 MongoDB)]
+    
+    subgraph Native["🛠️ Native C++ FFI"]
+        B3[[🧮 BLAKE3 Hashing]]
+        PB[[📦 Protobuf Core]]
+    end
+    
+    Core -.-> Native
+    
+    subgraph Async["⏳ Async Workers"]
+        TQ[🚀 BullMQ]
+        TW[👷 Workers]
+    end
+    
+    Core --> TQ --> TW --> DB
 ```
 
-Server:
-- Validates token
-- Issues Access Token (10m)
-- Issues Refresh Token (7d)
-- Hashes and stores refresh token
-- Sets HTTP-only secure cookies
+---
+
+## 🛠️ Tech Stack
+
+### Backend
+- **Runtime:** Bun
+- **Framework:** Fastify
+- **Database:** MongoDB (Mongoose)
+- **Cache:** Redis (ioredis)
+- **Serialization:** Protocol Buffers (protobufjs & C++ Core)
+
+### Security & Native
+- **Hashing:** BLAKE3 (Native C++)
+- **Signatures:** Ed25519 (Token Maker)
+- **Auth:** Stateless JWT + Refresh Token Rotation
+- **Security:** Helmet, CORS, Rate Limiting
+
+### Infrastructure
+- **Orchestration:** Docker Compose
+- **Native Build:** CMake + vcpkg
+- **Queuing:** BullMQ + Redis Streams
 
 ---
 
-## Step 3 – Refresh Token Rotation
+## 🔐 Authentication Model (Passwordless)
 
-```
-POST /api/auth/refresh
-```
+Twivo uses a fully passwordless model. No passwords are ever stored.
 
-Server:
-- Validates refresh token
-- Rotates refresh token
-- Issues new access token
-
-Refresh tokens are rotated on every use to reduce replay risk.
+1. **Sign/Login:** User requests a magic link via `/api/auth/sign`.
+2. **Verification:** Server sends a time-limited token. Verification happens via `/api/auth/login`.
+3. **Session:** Server issues a 10m Access Token and a 7d Refresh Token (rotated on use).
+4. **Security:** Refresh tokens are hashed using BLAKE3 before storage.
 
 ---
 
-# Caching Strategy (Redis-First)
+## 🛠️ Installation & Setup
 
-Redis is used as the primary read layer.
+### Prerequisites
+- [Docker](https://www.docker.com/) & [Docker Compose](https://docs.docker.com/compose/)
+- [Bun](https://bun.sh) (Optional, for local development)
 
-Examples:
-- Session storage
-- Feed caching
-- Like counters
-- Follow relationships
+### Quick Start with Docker
+The easiest way to get Twivo running is using Docker Compose:
 
-Read Strategy:
-1. Attempt Redis lookup
-2. Fallback to MongoDB
-3. Repopulate Redis cache
-
-This significantly reduces database pressure under high concurrency.
-
----
-
-# Media Architecture
-
-Twivo does not rely on third-party image hosting services.
-
-An independent high-performance image server is currently under development using:
-
-- C++
-- uWebSockets
-
-This image server will operate as a separate service and will later be integrated into Twivo as an internal media infrastructure component.
-
-Goal:
-- Maximum performance
-- Minimal overhead
-- Full infrastructure control
-
----
-
-# Tech Stack
-
-## Core
-- Node.js (18+)
-- Fastify
-- MongoDB (Mongoose)
-- Redis (ioredis)
-
-## Security
-- JWT (Access + Refresh)
-- Secure HTTP-only cookies
-- Helmet
-- CORS
-
-## Media
-- Custom C++ Image Server (uWebSockets) – In Development
-
----
-
-# Installation
-
-## Clone Repository
-
-```
+```bash
+# Clone the repository
 git clone https://github.com/husseinayyed/twivo-backend.git
 cd twivo-backend
+
+# Setup environment variables
+cp .env.example .env
+
+# Build and start the services
+docker compose up --build
 ```
 
-## Install Dependencies
+### Local Native Build
+To build the C++ native modules locally:
 
-```
-npm install
-```
-
-## Environment Variables
-
-Create a `.env` file:
-
-```
-DB_URL=mongodb+srv://<username>:<password>@cluster.mongodb.net/twivo
-JWT_SECRET=your_jwt_secret
-REFRESH_SECRET=your_refresh_secret
-FRONTEND_URL=http://localhost:3000
-PORT=5000
-REDIS_URL=redis://localhost:6379
-NODE_ENV=development
-```
-
-## Run Development Server
-
-```
-npm run dev
-```
-
-Server runs at:
-
-```
-http://localhost:5000
+```bash
+cd native
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
 ```
 
 ---
 
-# Project Structure
+## 📂 Project Structure
 
-```
+```text
 twivo-backend/
-├── server.js
-├── routes/
-├── services/
-├── models/
-├── middleware/
-├── Redis/
-├── utils/
-└── README.md
+├── native/             # 🛠️ C++ Native Modules (BLAKE3, Protobuf)
+├── protobuf/           # 📦 .proto definitions and JS setup
+├── Redis/              # 🧠 Cache-first logic for Users, Twis, and Likes
+├── queue/              # 🚀 BullMQ queue definitions
+├── worker/             # 👷 Background job processors
+├── consumer/           # 📥 Redis Stream consumers
+├── routes/             # 🛣️ API Endpoints (Auth, User, Feed)
+├── models/             # 💾 MongoDB (Mongoose) schemas
+├── middleware/         # 🛡️ JWT and Security middleware
+├── utils/              # 🛠️ Utility functions (DB, Cache, Ed25519)
+└── server.js           # ⚡ Fastify Entry Point
 ```
 
-Structure may evolve during refactor.
-
 ---
 
-# Roadmap
+## 🧪 Testing
 
-In Progress:
-- Complete Express → Fastify migration
-- Harden refresh token rotation logic
-- Integrate internal C++ image server
-- Improve schema validation
+Twivo uses Bun's built-in test runner for high-speed integration testing.
 
-Planned:
-- WebSocket-based real-time updates
-- Comment system
-- Direct messaging
-- Notification service
-- Monitoring & metrics
-- API versioning
-
----
-
-# Stability Notice
-
-- API contracts may change
-- Breaking changes are possible
-- Not production-stable
-
-Semantic versioning will be introduced after stabilization.
-
----
-
-# Contributing
-
-Contributions are welcome.
-
-Recommended focus areas:
-- Performance profiling
-- Security auditing
-- Test coverage
-- Architectural improvements
-
-Contribution flow:
-
-```
-git checkout -b feature/your-feature
-git commit -m "feat: describe change"
-git push origin feature/your-feature
+```bash
+# Run integration tests
+npm run test-i
 ```
 
-Open a Pull Request after pushing.
+---
+
+## 🗺️ Roadmap
+
+- [x] Fastify Migration
+- [x] Redis Cache-First Strategy
+- [x] Native C++ BLAKE3 Integration
+- [ ] WebSocket Real-Time Updates
+- [ ] Distributed Media Processing
+- [ ] Notification Microservice
 
 ---
 
-# License
+## 📜 License
 
-Licensed under GNU Affero General Public License v3.0 (AGPL-3.0).
+This project is licensed under the [GNU Affero General Public License v3.0](LICENSE).
 
 ---
 
-# Author
+## 👤 Author
 
-Hussein Ayyed  
-https://github.com/husseinayyed
+**Hussein Ayyed**
+- GitHub: [@husseinayyed](https://github.com/husseinayyed)

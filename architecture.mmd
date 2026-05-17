@@ -1,0 +1,118 @@
+graph TD
+    %% Global Configuration
+
+    subgraph External["🌐 External World"]
+        Client([📱 Web / Mobile Client])
+    end
+
+    subgraph Fastify["⚡ Fastify Server Entry (server.js)"]
+        FW[Framework Engine]
+        MW{Middleware Stack}
+        JWT[🔐 JWT Auth Validation]
+        Cookie[🍪 HttpOnly Cookie Parser]
+        Helmet[🛡️ Helmet Security Headers]
+    end
+
+    subgraph Routes["🛣️ API Routes (routes/)"]
+        R_Auth["🔑 /api/auth"]
+        R_User["👤 /api/user"]
+        R_Feed["📜 /api/feed"]
+        R_Misc["🔍 /api/ping"]
+    end
+
+    subgraph Cache["🧠 High-Performance Cache Layer (Redis/)"]
+        UC[👤 UserCache<br/>Hashes: user:id]
+        TC[🕊️ TwiCache<br/>Strings: twi:id]
+        LC[❤️ LikeCache<br/>Sets: twi:likes]
+        FC[🤝 FollowCache<br/>Sets: user:following]
+        SC[📦 SchemaCache<br/>Protobuf Definitions]
+    end
+
+    subgraph Async["⏳ Async Processing (Queue & Worker)"]
+        Stream[📥 Redis Stream<br/>uploads:stream]
+        Cons[⚙️ Stream Consumer<br/>XREADGROUP Engine]
+        TQ[🚀 BullMQ Engine<br/>twi-maker Queue]
+        TW[👷 Twi Worker<br/>Background Processor]
+    end
+
+    subgraph Native["🛠️ Native Core & Utils"]
+        Native_M[[💻 C++ Native Modules<br/>• SIMD Accelerated<br/>• Protobuf C++ Core]]
+        Hash_B[[🧮 BLAKE3 Hashing]]
+        TM[🪙 Token Maker<br/>Ed25519 Signatures]
+    end
+
+    subgraph Persistence["💾 Persistence Layer"]
+        REDIS[(💾 Redis Store<br/>ZSETs / Hashes / TTLs)]
+        MONGO[(🗄️ MongoDB<br/>Replica Set)]
+    end
+
+    %% Entry Flow (Linear Middleware Stack)
+    Client -->|HTTP/REST Requests| FW
+    FW --> Helmet
+    Helmet --> Cookie
+    Cookie --> MW
+    MW --> JWT
+
+    %% Isolated Routing Execution
+    JWT -->|Forward Auth Req| R_Auth
+    JWT -->|Forward User Req| R_User
+    JWT -->|Forward Feed Req| R_Feed
+    JWT -->|Forward Misc Req| R_Misc
+
+    %% 1. AUTH ROUTE INDEPENDENT FLOW
+    R_Auth -->|Write Magic URL Hash| UC
+    UC -->|Save Pending Session| REDIS
+
+    %% 2. USER ROUTE INDEPENDENT FLOW
+    R_User -->|Check User Profile| UC
+    R_User -->|1. Enqueue New Tweet| TQ
+    R_User -->|Request Media Upload Token| TM
+
+    %% 3. FEED ROUTE INDEPENDENT FLOW
+    R_Feed -->|Fetch Timelines| TC
+    R_Feed -->|Check Post Likes| LC
+    R_Feed -->|Check Follow Relations| FC
+
+    %% 4. MISC ROUTE INDEPENDENT FLOW
+    R_Misc -->|Check Network Link| REDIS
+
+    %% CACHE LAYER INDEPENDENT PERSISTENCE EXECUTIONS
+    UC -->|User Cache Miss Fallback| MONGO
+    TC -->|Twi Cache Miss Fallback| MONGO
+    
+    LC -->|Read/Write Likes Dataset| REDIS
+    FC -->|Read/Write Follow Sets| REDIS
+
+    %% PROTOBUF & NATIVE ROUTING
+    UC -->|Load Binary Buffer| SC
+    TC -->|Load Binary Buffer| SC
+    SC -->|Direct Memory FFI Bindings| Native_M
+
+    %% ASYNC WORKER INDEPENDENT PIPELINE
+    Stream -->|Fetch Appended Bytes| Cons
+    Cons -->|Normalize Text + Media JSON| TQ
+    TQ -->|Dequeue Job Payload| TW
+    TW -->|Write Document State| MONGO
+    TW -->|Invalidate Legacy User Metadata| UC
+    TW -->|Invalidate Legacy Feed Buffers| TC
+
+    %% SECURITY AND CRYPTO CORE
+    TM -->|Request Signature Sign| Native_M
+    Native_M -->|Verify Data Authenticity| Hash_B
+
+    %% Styling Theme Overrides (Dark Mode Optimized)
+    classDef external fill:#1e1e24,stroke:#3b82f6,stroke-width:2px,color:#fff
+    classDef server fill:#2d1b4e,stroke:#8b5cf6,stroke-width:2px,color:#fff
+    classDef route fill:#4c1d95,stroke:#c084fc,stroke-width:2px,color:#fff
+    classDef cache fill:#064e3b,stroke:#34d399,stroke-width:2px,color:#fff
+    classDef async fill:#7c2d12,stroke:#fb923c,stroke-width:2px,color:#fff
+    classDef native fill:#374151,stroke:#9ca3af,stroke-width:3px,color:#fff
+    classDef storage fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#fff
+
+    class Client external
+    class FW,MW,JWT,Cookie,Helmet server
+    class R_Auth,R_User,R_Feed,R_Misc route
+    class UC,TC,LC,FC,SC cache
+    class Stream,Cons,TQ,TW async
+    class Native_M,Hash_B,TM native
+    class REDIS,MONGO storage
