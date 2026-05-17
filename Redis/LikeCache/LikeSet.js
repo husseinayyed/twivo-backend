@@ -119,15 +119,15 @@ class LikeSetCache {
                 await twi.save();
             }
             
-            await this.srem(likeKey, userId.toString());
+            await this.client.srem(likeKey, userId.toString());
             
-            let cached = await this.hgetall(twiKey);
+            let cached = await this.client.hgetall(twiKey);
             if (!cached && twi) {
                 const user = await User.findById(twi.author.userId);
-                await this.hset(twiKey, 300, ...this.getTwiCacheFields(twi, user));
+                await this.client.hset(twiKey, 300, ...this.getTwiCacheFields(twi, user));
             } else if (cached) {
                 cached.likes = twi ? twi.likes : 0;
-                await this.hset(twiKey, 300, ...Object.entries(cached).flat());
+                await this.client.hset(twiKey, 300, ...Object.entries(cached).flat());
             }
             
             return true;

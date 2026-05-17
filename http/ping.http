@@ -8,9 +8,9 @@ POST http://localhost:3000/api/auth/sign
 Content-Type: application/json
 
 {
-    "name":"ddvdd",
-    "email":"vgtvdvfdv@gmail.com",
-    "username":"fvddxcsxds"
+    "name":"dddd",
+    "email":"vgtvfdv@gmail.com",
+    "username":"fvddsxds"
 }
 
 ### login
@@ -19,6 +19,7 @@ POST http://localhost:3000/api/auth/login
 Content-Type: application/json
 
 
+
 {
-  "magicUrl": "657ffb69-5be9-4ec7-b298-c319bd88c822"
+  "magicUrl": "b2015446-d80e-498e-951b-479aa4f2d5ec"
 }
