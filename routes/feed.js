@@ -1,17 +1,16 @@
 // routes/feed.js - FIXED
 import jwtAuth from "../middleware/jwt.js";
+import compileColumnarFeedLEAligned from "../protobuf/src/protocol.js";
 import Cache from "../utils/cache.js";
 import { LikeSchema } from "./schemas/feedSchemas.js";
-
 async function feedRoutes(fastify, options) {
   
   // GET /all
   fastify.get("/all", { preHandler: [jwtAuth] }, async (req, res) => {
     try {
-      const feed = await Cache.twi.get.getFeed(req.user.id);
-      console.log(`Feed retrieved for user ${req.user.id}`);
-      console.log(feed);
-      return res.status(200).send({ feed });
+      const { twis, likes, liked, followMap } = await Cache.twi.get.getFeed(req.user.id);
+      const binary = compileColumnarFeedLEAligned(twis, likes, liked, followMap);
+      return res.status(200).type("application/octet-stream").send(binary);
     } catch(e) {
       console.error('Feed error:', e);
       return res.status(500).send({ e: true });
