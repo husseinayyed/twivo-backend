@@ -55,18 +55,30 @@ export function verifyUserMessage(data, isPublic) {
 
 
 export function protoSerializeTwi(data) {
-    // Select the correct pre-loaded Type
+    if (!data) throw new Error("No data provided for Twi serialization");
 
-    // Map fields
+    // Explicit field mapping to ensure proto3 compatibility
+    const mapping = {
+        id: String(data.id || data._id || ""),
+        madeBy: String(data.madeBy || ""),
+        text: String(data.text || ""),
+        attachment: Boolean(data.attachment),
+        created_at: String(data.created_at || data.createdAt || new Date().toISOString())
+    };
+
+    // Optional fields
+    if (data.image) mapping.image = String(data.image);
+    if (data.aspectClass) mapping.aspectClass = String(data.aspectClass);
 
     // Validation
-    const verifyError = TwiType.verify(data);
+    const verifyError = TwiType.verify(mapping);
     if (verifyError) {
+        console.error("Failing data:", mapping);
         throw new Error(`Protobuf validation failed: ${verifyError}`);
     }
 
     // Create and Encode
-    const message = TwiType.create(data);
+    const message = TwiType.create(mapping);
     return TwiType.encode(message).finish();
 }
 export function verifyTwiMessage(data, isPublic) {

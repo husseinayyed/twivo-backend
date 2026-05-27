@@ -8,8 +8,8 @@ async function feedRoutes(fastify, options) {
   // GET /all
   fastify.get("/all", { preHandler: [jwtAuth] }, async (req, res) => {
     try {
-      const { twis, likes, liked, followMap } = await Cache.twi.get.getFeed(req.user.id);
-      const binary = compileColumnarFeedLEAligned(twis, likes, liked, followMap);
+      const { twis, likes, comments, liked, followMap } = await Cache.twi.get.getFeed(req.user.id);
+      const binary = compileColumnarFeedLEAligned(twis, likes, comments, liked, followMap);
       return res.status(200).type("application/octet-stream").send(binary);
     } catch(e) {
       console.error('Feed error:', e);

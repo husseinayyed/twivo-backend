@@ -8,11 +8,13 @@ function parseColumnarFeedLE(arrayBuffer) {
   const postCount = view.getUint16(0, true); 
 
   const likesSize = postCount * 4;
+  const commentsSize = postCount * 4;
   const flagsSize = postCount * 1;
-  const totalHeaderSize = 4 + likesSize + flagsSize;
+  const totalHeaderSize = 4 + likesSize + commentsSize + flagsSize;
 
   const likesArray = new Uint32Array(arrayBuffer, 4, postCount);
-  const flagsArray = new Uint8Array(arrayBuffer, 4 + likesSize, postCount);
+  const commentsArray = new Uint32Array(arrayBuffer, 4 + likesSize, postCount);
+  const flagsArray = new Uint8Array(arrayBuffer, 4 + likesSize + commentsSize, postCount);
   
   const rawBytes = new Uint8Array(arrayBuffer);
   const posts = new Array(postCount);
@@ -26,7 +28,8 @@ function parseColumnarFeedLE(arrayBuffer) {
     const bitmask = flagsArray[i];
 
     posts[i] = {
-      likes: likesArray[i],       
+      likes: likesArray[i],
+      comments: commentsArray[i],
       isLiked: (bitmask & 0x01) === 0x01,
       isFollowing: (bitmask & 0x02) === 0x02,
       proto: protoBuffer          
@@ -104,6 +107,8 @@ describe("FEED ROUTES", () => {
         const singlePost = parsedFeed[0];
         expect(singlePost).toHaveProperty("likes");
         expect(typeof singlePost.likes).toBe("number");
+        expect(singlePost).toHaveProperty("comments");
+        expect(typeof singlePost.comments).toBe("number");
         expect(singlePost).toHaveProperty("isLiked");
         expect(typeof singlePost.isLiked).toBe("boolean");
         expect(singlePost).toHaveProperty("isFollowing");
