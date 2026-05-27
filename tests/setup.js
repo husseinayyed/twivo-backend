@@ -5,15 +5,15 @@ let agent = null;
 let isInitialized = false;
 
 export async function getAgent() {
-  if (!isInitialized) {
-    await fastify.ready();
-    agent = request.agent(fastify.server);
-    
-    // Perform authentication once for all tests
-    await setupAuthentication(agent);
-    
-    isInitialized = true;
-  }
+  if (isInitialized && agent) return agent;
+  
+  await fastify.ready();
+  agent = request.agent(fastify.server);
+  
+  // Perform authentication once for all tests
+  await setupAuthentication(agent);
+  
+  isInitialized = true;
   return agent;
 }
 

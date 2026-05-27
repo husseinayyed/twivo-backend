@@ -1,12 +1,17 @@
 import { dlopen, ptr, FFIType } from "bun:ffi";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
-// // 1. Path Management
-// const LIB_PATH_PROTOBUF = "/app/native/build/libtwivo_native.so";
-const LIB_PATH_BLAKE3 = "/app/native/build/libtwivo_blake3.so";
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// 1. Path Management
+const LOCAL_LIB_PATH = join(__dirname, "build", "libtwivo_blake3.so");
+const DOCKER_LIB_PATH = "/app/native/build/libtwivo_blake3.so";
+
+const LIB_PATH_BLAKE3 = existsSync(LOCAL_LIB_PATH) ? LOCAL_LIB_PATH : DOCKER_LIB_PATH;
+
 console.log(`[native/setup] loading blake3 from ${LIB_PATH_BLAKE3}`);
-// console.log(`[native/setup] loading protobuf from ${LIB_PATH_PROTOBUF}`);
 
 // 2. Load Symbols
 const { symbols: blake3Symbols } = dlopen(LIB_PATH_BLAKE3, {
