@@ -8,6 +8,8 @@ import {
   loginSchema,
 } from "./schemas/authSchemas.js";
 import uuid4 from "uuid4";
+import { sendMagicLink } from "../utils/emailSender.js";
+
 const rateLimitConfig = {
   max: 5,
   timeWindow: "15 minutes",
@@ -30,17 +32,17 @@ export default async function (fastify, options) {
     async (request, reply) => {
       try {
         const { username, email, name } = request.body;
-        
+
         // Use Redis SETNX to prevent duplicate pending signups
         const emailKey = `pending:email:${email}`;
         const usernameKey = `pending:username:${username}`;
-        
+
         // Try to set both keys atomically
         const [emailSet, usernameSet] = await Promise.all([
-          Cache.client.setnx(emailKey, "1"),
-          Cache.client.setnx(usernameKey, "1"),
+          Cache.client.set(emailKey, "1", "NX", "EX", 900),
+          Cache.client.set(usernameKey, "1", "NX", "EX", 900),
         ]);
-        
+
         // If either key already exists, return conflict
         if (!emailSet || !usernameSet) {
           // Clean up any partial keys
@@ -50,22 +52,22 @@ export default async function (fastify, options) {
           if (!usernameSet) {
             fastify.log.info(`Duplicate pending username: ${username}`);
           }
-          return reply.status(409).send({ 
-            msg: "Email or username already has a pending signup. Please check your email or try again later." 
+          return reply.status(409).send({
+            msg: "Email or username already has a pending signup. Please check your email or try again later.",
           });
         }
-        
+
         // Set expiration for the pending keys (10 minutes)
         await Promise.all([
           Cache.client.expire(emailKey, 900),
           Cache.client.expire(usernameKey, 900),
         ]);
-        
+
         const magicUrl = uuid4();
         const key = `magicUrl:${magicUrl}`;
 
         await Cache.client
-          .pipeline()
+          .multi()
           .hset(key, {
             email: email,
             username: username,
@@ -73,18 +75,31 @@ export default async function (fastify, options) {
           })
           .expire(key, 900)
           .exec();
-          
-        fastify.log.info(`${email}: ${magicUrl}`);
-        return reply.status(202).send({
-          magicUrl: magicUrl,
-        });
+
+        // Send Magic Link via Email Service
+        if (process.env.NODE_ENV === "test") {
+          fastify.log.info(`[TEST MODE] Magic URL for ${email}: ${magicUrl}`);
+          return reply.status(202).send({
+            msg: "Magic link sent to your email",
+            magicUrl, // Include magicUrl in response for testing purposes
+          });
+        } else {
+          fastify.log.info(
+            `Sending magic link to ${email} with token ${magicUrl}`,
+          );
+          await sendMagicLink(email, username, magicUrl);
+
+          return reply.status(202).send({
+            msg: "Magic link sent to your email",
+          });
+        }
       } catch (e) {
         fastify.log.error(e);
         return reply.status(500).send({ msg: "Server Error 500" });
       }
     },
-);
- fastify.post(
+  );
+  fastify.post(
     "/login",
     {
       schema: loginSchema,
@@ -102,7 +117,7 @@ export default async function (fastify, options) {
             msg: "Invalid or expired magic URL",
           });
         }
-        
+
         const data = await Cache.client.hgetall(key);
 
         if (!data || Object.keys(data).length === 0) {
@@ -113,19 +128,19 @@ export default async function (fastify, options) {
         }
 
         const { email, username, name } = data;
-        
+
         // Clean up pending keys
         const emailKey = `pending:email:${email}`;
         const usernameKey = `pending:username:${username}`;
-        
+
         await Promise.all([
           Cache.client.del(emailKey),
           Cache.client.del(usernameKey),
         ]);
-        
+
         // Check if user already exists by email
         let user = await Cache.user.get.getUserByMethod("email", email);
-        
+
         if (user) {
           // User exists - update their refresh token
           const payload = { id: user._id.toString(), username: user.username };
@@ -133,7 +148,7 @@ export default async function (fastify, options) {
             fastify,
             payload,
           );
-          
+
           const userDB = await User.findOne({ email: email });
           userDB.refreshToken = hashToken;
           await userDB.save();
@@ -154,7 +169,7 @@ export default async function (fastify, options) {
             maxAge: 7 * 24 * 60 * 60 * 1000,
             path: "/",
           });
-          
+
           await Cache.user.set.cacheUserData(userDB);
         } else {
           // Check if username is taken by another email
@@ -162,14 +177,14 @@ export default async function (fastify, options) {
             "username",
             username,
           );
-          
+
           if (existingUsername) {
             return reply.status(400).send({
               success: false,
               msg: "Username already taken. Please sign up again with a different username.",
             });
           }
-          
+
           // Create new user
           const newUser = await User.create({
             email,
@@ -182,7 +197,7 @@ export default async function (fastify, options) {
             id: newUser._id.toString(),
             username: newUser.username,
           };
-          
+
           const { accessToken, refreshToken, hashToken } = await jwtMaker(
             fastify,
             payload,
@@ -198,7 +213,7 @@ export default async function (fastify, options) {
             sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
             maxAge: 10 * 60 * 1000,
             path: "/",
-          })
+          });
 
           reply.setCookie("refreshToken", refreshToken, {
             httpOnly: true,
@@ -207,10 +222,10 @@ export default async function (fastify, options) {
             maxAge: 7 * 24 * 60 * 60 * 1000,
             path: "/",
           });
-          
+
           await Cache.user.set.cacheUserData(newUser);
         }
-        
+
         await Cache.client.del(key);
         return reply.status(200).send({
           success: true,
@@ -223,7 +238,7 @@ export default async function (fastify, options) {
         });
       }
     },
-);
+  );
   fastify.delete(
     "/logout",
     {

@@ -54,6 +54,21 @@ fastify.register(auth, { prefix: '/api/auth' });
 fastify.register(user, { prefix: '/api/user' });
 fastify.register(feedRoutes, { prefix: '/api/feed' });
 
+// Global Error Handler
+fastify.setErrorHandler((error, request, reply) => {
+  request.log.error(error);
+  
+  // Custom error response
+  const statusCode = error.statusCode || 500;
+  reply.status(statusCode).send({
+    error: true,
+    message: process.env.NODE_ENV === 'production' && statusCode === 500
+      ? 'Internal Server Error'
+      : error.message,
+    code: error.code
+  });
+});
+
 const start = async () => {
   try {
     await fastify.listen({ port: 3000, host: "0.0.0.0" });
