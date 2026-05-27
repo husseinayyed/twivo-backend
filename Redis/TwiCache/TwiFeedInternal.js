@@ -30,16 +30,16 @@ export const feedInternalMethods = {
 
   /**
    * 2. Reusable metadata harvester to prevent undefined errors
+   * OPTIMIZED: Uses a Redis pipeline to fetch all meta hashes in one roundtrip
    */
   async _fetchMetaData(rawTweetIds) {
     if (!rawTweetIds || !rawTweetIds.length) return [];
     
-    const metaKeys = rawTweetIds.map(id => `twi:meta:${id}`);
-    const metaRaw = await Promise.all(
-      metaKeys.map(key => this.client.hgetall(key))
-    );
+    const pipeline = this.client.pipeline();
+    rawTweetIds.forEach(id => pipeline.hgetall(`twi:meta:${id}`));
+    const results = await pipeline.exec();
 
-    return metaRaw.map((meta) => ({
+    return results.map(([err, meta]) => ({
       likes: meta?.likes || "0",
       comments: meta?.comments || "0",
       madeBy: meta?.madeBy || ""
@@ -48,12 +48,13 @@ export const feedInternalMethods = {
 
   /**
    * 3. Personalization Layer: Processes relations and returns the FINAL assembled feed object.
+   * OPTIMIZED: Parallelizes metadata and buffer fetching to reduce wait time
    */
   async _addPersonalization(tweetIds, userId, metaData) {
     const userIdStr = userId.toString();
     
     // Fallback protection to ensure metaData mapping never fails
-    const safeMeta = metaData && metaData.length ? metaData : tweetIds.map(() => ({ likes: "0", madeBy: "" }));
+    const safeMeta = metaData && metaData.length ? metaData : tweetIds.map(() => ({ likes: "0", comments: "0", madeBy: "" }));
 
     const authorIds = safeMeta.map((meta) => meta?.madeBy);
     const uniqueAuthors = [
@@ -61,11 +62,12 @@ export const feedInternalMethods = {
     ];
 
     // High-performance parallel caching queries
-    const [likedData, followsArray] = await Promise.all([
+    const [likedData, followsArray, buffers] = await Promise.all([
       this.cache.like.get.batchHasLiked(tweetIds, userId),
       uniqueAuthors.length > 0 
         ? this.cache.follow.get.batchIsFollowing(userIdStr, uniqueAuthors)
-        : []
+        : Promise.resolve([]),
+      this.client.mgetBuffer(tweetIds.map(id => `twi:${id}`))
     ]);
 
     // O(1) Follow lookup dictionary
@@ -79,16 +81,14 @@ export const feedInternalMethods = {
       return followLookup[authorId] || false;
     });
 
-    // Fetch the raw tweet binary buffers to finalize the payload
-    const redisKeys = tweetIds.map(id => `twi:${id}`);
-    const buffers = await this.client.mgetBuffer(redisKeys);
-    
     const likesData = safeMeta.map(meta => parseInt(meta.likes, 10));
+    const commentsData = safeMeta.map(meta => parseInt(meta.comments, 10));
 
     // Returns the complete unified result as requested
     return {
       twis: buffers,
-      likes: likesData,     
+      likes: likesData,
+      comments: commentsData,
       liked: likedData,     
       followMap: followMapData,
     };
@@ -99,7 +99,7 @@ export const feedInternalMethods = {
    */
   async _assmbleFeedItem(rawTweetIds, userId) {
     if (!rawTweetIds || rawTweetIds.length === 0) {
-      return { twis: [], likes: [], liked: [], followMap: [] };
+      return { twis: [], likes: [], comments: [], liked: [], followMap: [] };
     }
 
     // Fetch meta data and hand over execution cleanly to personalization

@@ -22,18 +22,19 @@ class TwiGetCache {
   async getFeed(userId) {
     try {
       const cachedFeed = await this.client.zrange("feed:generic", 0, 19);
-      let tweetIds = [];
       if (cachedFeed?.length) {
-        tweetIds = cachedFeed;
-          return await this._assmbleFeedItem(tweetIds, userId);
+        return await this._assmbleFeedItem(cachedFeed, userId);
       }
+
       const freshFeed = await this._generateFreshFeed(userId);
-      console.log(`Generated fresh feed for user ${userId}:`, freshFeed);
-      if (!freshFeed?.length) return [];
-      return await this._assmbleFeedItem(freshFeed, userId);
+      if (!freshFeed || !freshFeed.twis || freshFeed.twis.length === 0) {
+        return { twis: [], likes: [], liked: [], followMap: [] };
+      }
+      return freshFeed;
       
     } catch (err) {
       console.error("Feed error:", err);
+      return { twis: [], likes: [], liked: [], followMap: [] };
     }
   }
 
@@ -42,6 +43,7 @@ class TwiGetCache {
   // ================= DB FETCH =================
 
   // ================= FEED =================
+
 
 }
 

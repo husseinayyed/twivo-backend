@@ -41,8 +41,7 @@ class TwiSetCache {
 
   _cacheFeedItem(twi, pipeline, score) {
     const cacheData = SchemaCache.createTwiCacheData(twi);
-    const id = cacheData._id || cacheData.id || twi._id || twi.id;
-    const idStr = id.toString();
+    const idStr = cacheData.id;
 
     const data = Buffer.from(protoSerializeTwi(cacheData));
 

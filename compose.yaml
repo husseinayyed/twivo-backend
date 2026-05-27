@@ -86,7 +86,7 @@ services:
       # Mount the key file as read-only. 
       # Ensure ./keys/private.pem exists on your host.
       - ./keys/private.pem:/app/keys/private.pem:ro
-    command: tail -f /dev/null
+    command: ["tail", "-f", "/dev/null"]
     environment:
       - DB_URL=${DB_URL}
       - REDIS_URL=redis://twivo-redis:6379
@@ -101,6 +101,7 @@ services:
       - PORT=3000
       - ADDON_ENV=${ADDON_ENV}
       - NODE_ENV=${NODE_ENV}
+      - RESEND_API_KEY=${RESEND_API_KEY}
       - MEDIA_SERVICE_URL=http://twivo-media-app:8080
     depends_on:
       redis:
@@ -133,6 +134,7 @@ services:
       - COOKIE_SECRET=${COOKIE_SECRET}
       - BLAKE3_SECRET=${BLAKE3_SECRET}
       - NODE_ENV=${NODE_ENV}
+      - RESEND_API_KEY=${RESEND_API_KEY}
       - ED25519_KEY_PATH=/app/keys/private.pem
       - ED25519_PUBLIC_KEY=${ED25519_PUBLIC_KEY}
     depends_on:

@@ -40,29 +40,38 @@ class SchemaClass {
 
   // ### Twi ###
   createTwiCacheData(twi, _cache = false) {
+    if (!twi) return null;
+
+    // Handle potential double transformation or different ID field names
+    const id = twi._id || twi.id || "";
+    const madeBy = twi.madeBy || "";
+    
     const text = twi.text?.trim() || "";
-    const attachment = twi.attachment ?? false;
+    const attachment = !!(twi.attachment);
+
+    const createdAt = (() => {
+      const d = twi.createdAt || twi.created_at;
+
+      if (!d) return new Date().toISOString();
+
+      const date = d instanceof Date ? d : new Date(d);
+
+      if (isNaN(date.getTime())) {
+        return new Date().toISOString();
+      }
+
+      return date.toISOString();
+    })();
 
     return {
-      id: _cache ? twi._id?.toString() : twi._id || "",
-      madeBy: _cache ? twi.madeBy?.toString() : twi.madeBy || "",
+      id: String(id),
+      madeBy: String(madeBy),
       text,
-      attachment: _cache ? attachment.toString() : attachment,
+      attachment,
       image: twi.image || "",
       aspectClass: twi.aspectClass || "",
-      createdAt: (() => {
-        const d = twi.createdAt;
-
-        if (!d) return new Date().toISOString();
-
-        const date = d instanceof Date ? d : new Date(d);
-
-        if (isNaN(date.getTime())) {
-          return new Date().toISOString();
-        }
-
-        return date.toISOString();
-      })(),
+      createdAt,
+      created_at: createdAt, // For Protobuf compatibility
     };
   }
 }

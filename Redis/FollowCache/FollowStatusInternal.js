@@ -2,36 +2,32 @@ import { Follow } from "../../models/follow.js";
 
 export const followStatusInternalMethods = {
   async isFollowing(userId, targetUserId, pipeline = null) {
-    const followingKey = `user:${userId}:following`;
+    const userIdStr = userId.toString();
+    const targetIdStr = targetUserId.toString();
+    const followingKey = `user:${userIdStr}:following`;
 
     if (pipeline) {
-      // Just add the command to pipeline
-      pipeline.sismember(followingKey, targetUserId);
-      return; // Don't return anything when pipeline is used
+      pipeline.sismember(followingKey, targetIdStr);
+      return;
     }
 
-    // Regular execution without pipeline
-    const result = await this.client.sismember(followingKey, targetUserId);
-    if (result === 1) return true;
+    try {
+      // 1. Ensure user's following set is in cache
+      const isCached = await this.client.exists(followingKey);
+      const isLoadedFlag = isCached === 0 ? await this.client.exists(`${followingKey}:loaded`) : 1;
 
-    // Check database
-    const follow = await Follow.findOne({
-      follower: userId,
-      following: targetUserId,
-    }).lean();
+      if (isCached === 0 && isLoadedFlag === 0) {
+        // Cache miss: Load all following IDs for this user
+        await this.cache.follow.set.syncFollowingToCache(userIdStr);
+      }
 
-    if (follow) {
-      // Cache result
-      const cachePipeline = this.client.pipeline();
-      cachePipeline.sadd(followingKey, targetUserId);
-      cachePipeline.sadd(`user:${targetUserId}:followers`, userId);
-      cachePipeline.expire(followingKey, 300);
-      cachePipeline.expire(`user:${targetUserId}:followers`, 300);
-      await cachePipeline.exec();
-      return true;
+      // 2. Trust Redis O(1) result
+      const result = await this.client.sismember(followingKey, targetIdStr);
+      return result === 1;
+    } catch (error) {
+      console.error("Error checking follow status:", error);
+      return false;
     }
-
-    return false;
   },
 
   async getBatchFollowStatus(viewerId, userId) {
@@ -40,25 +36,13 @@ export const followStatusInternalMethods = {
     }
 
     try {
-      // Use batch method if available, otherwise individual
-      if (this.batchIsFollowing) {
-        const results = await Promise.all([
-          this.batchIsFollowing(viewerId, [userId]),
-          this.batchIsFollowing(userId, [viewerId]),
-        ]);
-
-        return [
-          results[0][0]?.isFollowing || false,
-          results[1][0]?.isFollowing || false,
-        ];
-      } else {
-        // Fallback to individual calls
-        const [isFollowing, followsYou] = await Promise.all([
-          this.cache.follow.isFollowing(viewerId, userId),
-          this.cache.follow.isFollowing(userId, viewerId),
-        ]);
-        return [isFollowing, followsYou];
-      }
+      // Parallel check: Does viewer follow author? AND Does author follow viewer?
+      const [isFollowing, followsYou] = await Promise.all([
+        this.isFollowing(viewerId, userId),
+        this.isFollowing(userId, viewerId)
+      ]);
+      
+      return [isFollowing, followsYou];
     } catch (error) {
       console.error("Error getting batch follow status:", error);
       return [false, false];
@@ -69,63 +53,30 @@ export const followStatusInternalMethods = {
   if (!targetUserIds.length) return [];
   
   const userIdStr = userId.toString();
-  const finalResults = new Array(targetUserIds.length).fill(false);
-  const targetsToCheckInDB = [];
+  const followingKey = `user:${userIdStr}:following`;
 
   try {
-    const pipeline = this.client.pipeline();
+    // 1. Ensure user's following set is in cache
+    const isCached = await this.client.exists(followingKey);
+    const isLoadedFlag = isCached === 0 ? await this.client.exists(`${followingKey}:loaded`) : 1;
 
-    // 1. Batch check Redis
+    if (isCached === 0 && isLoadedFlag === 0) {
+      // Cache miss: Load ALL following for this user into Redis once
+      await this.cache.follow.set.syncFollowingToCache(userIdStr);
+    }
+
+    // 2. Perform high-performance pipelined SISMEMBER checks
+    const pipeline = this.client.pipeline();
     targetUserIds.forEach((targetId) => {
-      pipeline.sismember(`user:${userIdStr}:following`, targetId.toString());
+      pipeline.sismember(followingKey, targetId.toString());
     });
 
     const results = await pipeline.exec();
-    
-    results.forEach(([err, isMember], index) => {
-      if (!err && isMember === 1) {
-        finalResults[index] = true;
-      } else {
-        // Not in cache or Redis error: mark for DB check
-        targetsToCheckInDB.push({ id: targetUserIds[index], index });
-      }
-    });
-
-    // 2. Batch check MongoDB for misses
-    if (targetsToCheckInDB.length > 0) {
-      const dbIds = targetsToCheckInDB.map(t => t.id);
-      const dbFollows = await Follow.find({
-        follower: userId,
-        following: { $in: dbIds },
-      }).select("following").lean();
-
-      const followingSet = new Set(dbFollows.map(f => f.following.toString()));
-      const redisPipeline = this.client.pipeline();
-
-      targetsToCheckInDB.forEach(({ id, index }) => {
-        const idStr = id.toString();
-        const isFollowing = followingSet.has(idStr);
-        
-        finalResults[index] = isFollowing;
-
-        // 3. Update Cache
-        if (isFollowing) {
-          redisPipeline.sadd(`user:${userIdStr}:following`, idStr);
-          redisPipeline.sadd(`user:${idStr}:followers`, userIdStr);
-          // Standardize TTL (e.g., 1 hour instead of 5 mins for better hit rate)
-          redisPipeline.expire(`user:${userIdStr}:following`, 3600);
-        }
-      });
-
-      await redisPipeline.exec();
-    }
-
-    return finalResults;
+    return results.map(([err, isMember]) => !err && isMember === 1);
 
   } catch (error) {
     console.error(`Error in batchIsFollowing:`, error);
-
-    // FIXED FALLBACK: Ensure the fallback actually returns the correct booleans
+    // Fallback: DB check for the whole batch
     const dbFollows = await Follow.find({
       follower: userId,
       following: { $in: targetUserIds },
