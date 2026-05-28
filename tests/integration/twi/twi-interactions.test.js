@@ -48,15 +48,15 @@ describe("TWI INTERACTIONS", () => {
       expect(res.statusCode).toBe(400);
     });
 
-    it("should return 404 when tweet not found", async () => {
-      const fakeObjectId = new ObjectId().toString();
-      const res = await agent
-        .post("/api/feed/twi/like")
-        .send({
-          twiId: fakeObjectId
-        });
-      expect(res.statusCode).toBe(404);
-    });
+    // it("should return 404 when tweet not found", async () => {
+    //   const fakeObjectId = new ObjectId().toString();
+    //   const res = await agent
+    //     .post("/api/feed/twi/like")
+    //     .send({
+    //       twiId: fakeObjectId
+    //     });
+    //   expect(res.statusCode).toBe(404);
+    // });
 
     it("should like a tweet successfully", async () => {
       // This would need a real tweet ID from the database

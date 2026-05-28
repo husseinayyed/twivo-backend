@@ -3,6 +3,7 @@ import jwtAuth from "../middleware/jwt.js";
 import compileColumnarFeedLEAligned from "../protobuf/src/protocol.js";
 import Cache from "../utils/cache.js";
 import { LikeSchema } from "./schemas/feedSchemas.js";
+import { likeQueue } from "../queue/Twi/Like.js";
 async function feedRoutes(fastify, options) {
   
   // GET /all
@@ -17,66 +18,71 @@ async function feedRoutes(fastify, options) {
     }
   });
 
-  // POST /twi/like - FIXED parameter passing
-  fastify.post("/twi/like", { 
+ fastify.post("/twi/like", { 
     preHandler: [jwtAuth], 
     schema: LikeSchema 
   }, async (req, res) => {
-    // Extract variables from request
     const { twiId } = req.body;
     const userId = req.user.id;
 
+    const userIdStr = userId.toString();
+    const twiIdStr = twiId.toString();
+    
+    const likeSetKey = `twi:likes:${twiIdStr}`;
+    const userLikesKey = `user:${userIdStr}:likes`;
+    const metaHashKey = `twi:meta:${twiIdStr}`;
+
     try {
-      // CRITICAL FIX: Pass twiId as string, NOT as object
-      // The error shows it's receiving { twiId: '...' } instead of just '...'
-      const twi = await Cache.twi.get.getContent(twiId, userId);
+      // 1. Optimistic Multi-Mutation Pipeline Execution (Single I/O Roundtrip)
+      const pipeline = Cache.client.pipeline();
+      pipeline.sadd(likeSetKey, userIdStr);
+      const results = await pipeline.exec();
       
-      if (!twi) {
-        return res.status(404).send({ e: true, message: "Tweet not found" });
-      }
-      
-      // Check if already liked
-      const alreadyLiked = await Cache.like.get.hasLiked(twiId, userId);
+      // SADD returns 1 if element is added natively, 0 if it already existed
+      const isNewLike = results[0][1] === 1; 
 
-      if (!alreadyLiked) {
-        // LIKE: Add like to both DB and Redis
-        const success = await Cache.like.set.addLike(twiId, userId);
-        
-        if (!success) {
-          return res.status(500).send({ e: true, message: "Failed to like tweet" });
-        }
-        
+      if (isNewLike) {
+        // Hydrate remaining user-centric keys and counters instantly
+        const likePipeline = Cache.client.pipeline();
+        likePipeline.sadd(userLikesKey, twiIdStr);
+        likePipeline.hincrby(metaHashKey, 'likes', 1);
+        likePipeline.expire(likeSetKey, 2592000);
+        likePipeline.expire(userLikesKey, 2592000);
+        await likePipeline.exec();
+
+        // 🚀 Throw to BullMQ and don't await the job execution finish line
+        await likeQueue.add(`like:${twiIdStr}:${userIdStr}`, {
+          action: 'LIKE', twiId: twiIdStr, userIdStr, metaHashKey, likeSetKey, userLikesKey
+        }, { attempts: 3, backoff: 5000 });
+
         return res.status(200).send({ 
-          e: false, 
-          liked: true, 
-          message: "Tweet liked successfully" 
+          e: false, liked: true, message: "Tweet liked successfully" 
         });
-      } else {
-        // UNLIKE: Remove like from both DB and Redis
-        const success = await Cache.like.set.removeLike(twiId, userId);
-        
-        if (!success) {
-          return res.status(500).send({ e: true, message: "Failed to unlike tweet" });
-        }
 
-        // Get updated like count from cache
-        const likeCount = await Cache.like.get.getTwiLikeCount(twiId);
+      } else {
+        // If it was already liked, reverse the state to UNLIKE
+        const unlikePipeline = Cache.client.pipeline();
+        unlikePipeline.srem(likeSetKey, userIdStr);
+        unlikePipeline.srem(userLikesKey, twiIdStr);
+        unlikePipeline.hincrby(metaHashKey, 'likes', -1);
+        const unlikeResults = await unlikePipeline.exec();
         
+        const currentLikes = unlikeResults[2][1];
+
+        // 🚀 Throw the unlike operation to background worker 
+        await likeQueue.add(`unlike:${twiIdStr}:${userIdStr}`, {
+          action: 'UNLIKE', twiId: twiIdStr, userIdStr, metaHashKey, likeSetKey, userLikesKey
+        }, { attempts: 3, backoff: 5000 });
+
         return res.status(200).send({ 
-          e: false, 
-          liked: false, 
-          likes: likeCount,
-          message: "Tweet unliked successfully" 
+          e: false, liked: false, likes: currentLikes, message: "Tweet unliked successfully" 
         });
       }
     } catch (error) {
-      console.error('Error in like operation:', error);
-      return res.status(500).send({ 
-        e: true, 
-        message: "Internal server error"
-      });
+      console.error('Critical operational failure:', error);
+      return res.status(500).send({ e: true, message: "Internal server error" });
     }
-  });
+});
 
   // POST /twi/hasLiked
   fastify.post("/twi/hasLiked", { preHandler: [jwtAuth] }, async (req, res) => {

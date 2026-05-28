@@ -13,18 +13,16 @@ export const createTwiSchema = {
     },
   },
 };
-
 export const LikeSchema = {
   body: {
     type: 'object',
     required: ['twiId'],
+    additionalProperties: false, // 🔒 Crucial Security Addition: Drops unmapped rogue payload attributes
     properties: {
       twiId: {
         type: 'string',
-        pattern: '^[0-9a-fA-F]{24}$',
-        minLength:24,
-        maxLength:24,
-        description: 'MongoDB ObjectId (24 hex characters)'
+        pattern: '^[0-9a-fA-F]{24}$', // Enforces exact 24 hex characters natively
+        description: 'MongoDB ObjectId string representation'
       }
     }
   }

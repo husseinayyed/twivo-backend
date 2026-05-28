@@ -1,7 +1,7 @@
 import { Like } from "../../models/like.js";
 
 export const likeStatusInternalMethods = {
-  async hasLiked(twiId, userId, pipeline = null) {
+  async hasLiked(twiId, userId) {
     const userIdStr = userId.toString();
     const twiIdStr = twiId.toString();
 
@@ -9,11 +9,6 @@ export const likeStatusInternalMethods = {
     const userLikesKey = `user:${userIdStr}:likes`;
 
     try {
-      if (pipeline) {
-        pipeline.sismember(userLikesKey, twiIdStr);
-        return;
-      }
-
       // Check if user's likes are cached
       const pipeline = this.client.pipeline();
       pipeline.exists(userLikesKey);
