@@ -7,7 +7,10 @@ export const likeListInternalMethods = {
       const cached = await this.cache.smembers(likeKey);
       if (cached.length) return cached;
 
-      const likes = await Like.find({ twiId }).select("likedBy");
+      const likes = await Like.find({ likedBy: userIdStr })
+        .select("twiId")
+        .sort({ createdAt: -1 })
+        .limit(5000);
       const userIds = likes.map((like) => like.likedBy.toString());
       if (userIds.length) {
         await this.client.sadd(likeKey, ...userIds);
